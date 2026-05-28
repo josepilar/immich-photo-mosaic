@@ -8,7 +8,10 @@
     "build": "vite build && tsc --noEmit",
     "start": "node .output/server/index.mjs",
     "test": "vitest run --config vitest.config.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "format": "biome format --write .",
+    "lint": "biome lint .",
+    "check": "biome check ."
   },
   "dependencies": {
     "@tanstack/react-router": "^1.170.8",
@@ -26,6 +29,7 @@
     "zod": "^3.24.1"
   },
   "devDependencies": {
+    "@biomejs/biome": "^2.4.16",
     "@tailwindcss/vite": "^4.2.2",
     "@types/node": "^22.10.2",
     "@types/react": "^19.0.2",

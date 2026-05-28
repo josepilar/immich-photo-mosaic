@@ -42,7 +42,12 @@ export function colorDistance(a: RGB, b: RGB) {
   return Math.sqrt((a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2 + (a[2] - b[2]) ** 2)
 }
 
-export function selectTilesForCells(targetColors: Array<RGB>, candidates: Array<RenderCandidate>, config: Pick<MosaicConfig, 'repeatLimit' | 'minRepeatSpacing' | 'randomSeed'>, columns?: number): Array<Selection> {
+export function selectTilesForCells(
+  targetColors: Array<RGB>,
+  candidates: Array<RenderCandidate>,
+  config: Pick<MosaicConfig, 'repeatLimit' | 'minRepeatSpacing' | 'randomSeed'>,
+  columns?: number,
+): Array<Selection> {
   if (!candidates.length) throw new Error('No tile candidates available')
   const usage = new Map<string, number>()
   const recent = new Map<string, number>()
@@ -58,15 +63,23 @@ export function selectTilesForCells(targetColors: Array<RGB>, candidates: Array<
         return { candidate, distance, score: distance + count * 12 + localPenalty }
       })
       .sort((a, b) => a.score - b.score)
-    const selected = ranked.find(({ candidate }) => {
-      const count = usage.get(candidate.assetId) ?? 0
-      const last = recent.get(candidate.assetId)
-      return count < config.repeatLimit && (last === undefined || index - last > config.minRepeatSpacing) && hasLocalSpacing(index, positions.get(candidate.assetId), columns, localRadius)
-    }) ?? ranked.find(({ candidate }) => {
-      const count = usage.get(candidate.assetId) ?? 0
-      const last = recent.get(candidate.assetId)
-      return count < config.repeatLimit && (last === undefined || index - last > config.minRepeatSpacing)
-    }) ?? ranked.find(({ candidate }) => (usage.get(candidate.assetId) ?? 0) < config.repeatLimit) ?? ranked[0]
+    const selected =
+      ranked.find(({ candidate }) => {
+        const count = usage.get(candidate.assetId) ?? 0
+        const last = recent.get(candidate.assetId)
+        return (
+          count < config.repeatLimit &&
+          (last === undefined || index - last > config.minRepeatSpacing) &&
+          hasLocalSpacing(index, positions.get(candidate.assetId), columns, localRadius)
+        )
+      }) ??
+      ranked.find(({ candidate }) => {
+        const count = usage.get(candidate.assetId) ?? 0
+        const last = recent.get(candidate.assetId)
+        return count < config.repeatLimit && (last === undefined || index - last > config.minRepeatSpacing)
+      }) ??
+      ranked.find(({ candidate }) => (usage.get(candidate.assetId) ?? 0) < config.repeatLimit) ??
+      ranked[0]
     usage.set(selected.candidate.assetId, (usage.get(selected.candidate.assetId) ?? 0) + 1)
     recent.set(selected.candidate.assetId, index)
     const previousPositions = positions.get(selected.candidate.assetId) ?? []
@@ -75,16 +88,25 @@ export function selectTilesForCells(targetColors: Array<RGB>, candidates: Array<
   })
 }
 
-function hasLocalSpacing(index: number, previous: Array<number> | undefined, columns: number | undefined, radius: number) {
+function hasLocalSpacing(
+  index: number,
+  previous: Array<number> | undefined,
+  columns: number | undefined,
+  radius: number,
+) {
   if (!columns || !previous?.length || radius <= 0) return true
   const row = Math.floor(index / columns)
   const column = index % columns
-  return !previous.some((other) => Math.abs(row - Math.floor(other / columns)) <= radius && Math.abs(column - (other % columns)) <= radius)
+  return !previous.some(
+    (other) => Math.abs(row - Math.floor(other / columns)) <= radius && Math.abs(column - (other % columns)) <= radius,
+  )
 }
 
 export async function imageAverage(buffer: Buffer, size = 32): Promise<RGB> {
   const raw = await sharp(buffer).rotate().resize(size, size, { fit: 'fill' }).removeAlpha().raw().toBuffer()
-  let r = 0, g = 0, b = 0
+  let r = 0,
+    g = 0,
+    b = 0
   for (let i = 0; i < raw.length; i += 3) {
     r += raw[i]
     g += raw[i + 1]
@@ -164,19 +186,46 @@ export async function looksLikeScreenshot(buffer: Buffer) {
 
 export async function prepareTile(buffer: Buffer, config: MosaicConfig, width: number, height: number, average: RGB) {
   if (config.fitMode === 'stretch') {
-    return sharp(buffer).rotate().resize(width, height, { fit: 'fill' }).sharpen(tileSharpen).jpeg(tileJpegOptions).toBuffer()
+    return sharp(buffer)
+      .rotate()
+      .resize(width, height, { fit: 'fill' })
+      .sharpen(tileSharpen)
+      .jpeg(tileJpegOptions)
+      .toBuffer()
   }
   if (config.fitMode === 'cover') {
-    return sharp(buffer).rotate().resize(width, height, { fit: 'cover' }).sharpen(tileSharpen).jpeg(tileJpegOptions).toBuffer()
+    return sharp(buffer)
+      .rotate()
+      .resize(width, height, { fit: 'cover' })
+      .sharpen(tileSharpen)
+      .jpeg(tileJpegOptions)
+      .toBuffer()
   }
 
-  const contained = await sharp(buffer).rotate().resize(width, height, { fit: 'contain', background: { r: 0, g: 0, b: 0, alpha: 0 } }).sharpen(tileSharpen).png().toBuffer()
+  const contained = await sharp(buffer)
+    .rotate()
+    .resize(width, height, { fit: 'contain', background: { r: 0, g: 0, b: 0, alpha: 0 } })
+    .sharpen(tileSharpen)
+    .png()
+    .toBuffer()
   if (config.paddingMode === 'blurred') {
-    const background = await sharp(buffer).rotate().resize(width, height, { fit: 'cover' }).blur(18).modulate({ brightness: 0.8 }).jpeg().toBuffer()
-    return sharp(background).composite([{ input: contained }]).jpeg(tileJpegOptions).toBuffer()
+    const background = await sharp(buffer)
+      .rotate()
+      .resize(width, height, { fit: 'cover' })
+      .blur(18)
+      .modulate({ brightness: 0.8 })
+      .jpeg()
+      .toBuffer()
+    return sharp(background)
+      .composite([{ input: contained }])
+      .jpeg(tileJpegOptions)
+      .toBuffer()
   }
   const bg = paddingColor(config, average)
-  return sharp({ create: { width, height, channels: 3, background: bg } }).composite([{ input: contained }]).jpeg(tileJpegOptions).toBuffer()
+  return sharp({ create: { width, height, channels: 3, background: bg } })
+    .composite([{ input: contained }])
+    .jpeg(tileJpegOptions)
+    .toBuffer()
 }
 
 export function computeLayout(config: MosaicConfig, mainWidth: number, mainHeight: number) {
@@ -190,8 +239,10 @@ export function computeLayout(config: MosaicConfig, mainWidth: number, mainHeigh
   }
   const tileWidth = config.tileSize
   const tileHeight = Math.max(1, Math.round(config.tileSize / config.tileAspectRatio))
-  const columns = config.automaticGrid || config.columns === 0 ? Math.max(1, Math.round(outputWidth / tileWidth)) : config.columns
-  const rows = config.automaticGrid || config.rows === 0 ? Math.max(1, Math.round(outputHeight / tileHeight)) : config.rows
+  const columns =
+    config.automaticGrid || config.columns === 0 ? Math.max(1, Math.round(outputWidth / tileWidth)) : config.columns
+  const rows =
+    config.automaticGrid || config.rows === 0 ? Math.max(1, Math.round(outputHeight / tileHeight)) : config.rows
   outputWidth = columns * tileWidth
   outputHeight = rows * tileHeight
   return { outputWidth, outputHeight, tileWidth, tileHeight, columns, rows }
@@ -213,11 +264,17 @@ export async function renderMosaic(args: {
   onProgress?: (completed: number, total: number, message: string) => void
 }) {
   const metadata = await sharp(args.mainBuffer).metadata()
-  const layout = computeLayout(args.config, metadata.width ?? args.config.outputWidth, metadata.height ?? args.config.outputHeight)
+  const layout = computeLayout(
+    args.config,
+    metadata.width ?? args.config.outputWidth,
+    metadata.height ?? args.config.outputHeight,
+  )
   const renderTotal = args.candidates.length + layout.rows + 5
   let renderCompleted = 0
   const progress = (message: string) => args.onProgress?.(renderCompleted, renderTotal, message)
-  args.onLog?.(`Render layout computed: output=${layout.outputWidth}x${layout.outputHeight}, tile=${layout.tileWidth}x${layout.tileHeight}, grid=${layout.columns}x${layout.rows}`)
+  args.onLog?.(
+    `Render layout computed: output=${layout.outputWidth}x${layout.outputHeight}, tile=${layout.tileWidth}x${layout.tileHeight}, grid=${layout.columns}x${layout.rows}`,
+  )
   progress(`Preparing ${args.candidates.length} tiles for render`)
   await fs.mkdir(args.outputFolder, { recursive: true })
   const tileDir = path.join(args.outputFolder, 'tiles')
@@ -228,10 +285,12 @@ export async function renderMosaic(args: {
 
   const prepared: Array<RenderCandidate> = []
   for (const [index, candidate] of args.candidates.entries()) {
-    if (index === 0 || (index + 1) % 100 === 0 || index + 1 === args.candidates.length) args.onLog?.(`Preparing tile ${index + 1}/${args.candidates.length}`)
-    const source = candidate.buffer ?? await fs.readFile(candidate.sourcePath!)
+    if (index === 0 || (index + 1) % 100 === 0 || index + 1 === args.candidates.length)
+      args.onLog?.(`Preparing tile ${index + 1}/${args.candidates.length}`)
+    const source = candidate.buffer ?? (await fs.readFile(requiredSourcePath(candidate)))
     const tileBuffer = await prepareTile(source, args.config, layout.tileWidth, layout.tileHeight, candidate.average)
-    if (args.config.keepIntermediates) await fs.writeFile(path.join(tileDir, `${safeName(candidate.assetId)}.jpg`), tileBuffer)
+    if (args.config.keepIntermediates)
+      await fs.writeFile(path.join(tileDir, `${safeName(candidate.assetId)}.jpg`), tileBuffer)
     prepared.push({ ...candidate, average: await imageAverage(tileBuffer), tileBuffer })
     renderCompleted += 1
     progress(`Preparing tile ${index + 1}/${args.candidates.length}`)
@@ -249,19 +308,27 @@ export async function renderMosaic(args: {
   args.onLog?.('Rendering row strips')
   const rowFiles: Array<string> = []
   for (let row = 0; row < layout.rows; row += 1) {
-    if (row === 0 || (row + 1) % 10 === 0 || row + 1 === layout.rows) args.onLog?.(`Rendering row ${row + 1}/${layout.rows}`)
+    if (row === 0 || (row + 1) % 10 === 0 || row + 1 === layout.rows)
+      args.onLog?.(`Rendering row ${row + 1}/${layout.rows}`)
     const rowComposites = []
     for (let column = 0; column < layout.columns; column += 1) {
       const index = row * layout.columns + column
       const selection = selections[index]
       rowComposites.push({
-        input: await colorMatchedTile(selection.candidate.tileBuffer, colors[index], selection.candidate.average, args.config.colorMatchingStrength),
+        input: await colorMatchedTile(
+          selection.candidate.tileBuffer,
+          colors[index],
+          selection.candidate.average,
+          args.config.colorMatchingStrength,
+        ),
         left: column * layout.tileWidth,
         top: 0,
       })
     }
     const rowPath = path.join(rowDir, `row-${String(row).padStart(5, '0')}.png`)
-    await sharp({ create: { width: layout.outputWidth, height: layout.tileHeight, channels: 3, background: '#000000' } })
+    await sharp({
+      create: { width: layout.outputWidth, height: layout.tileHeight, channels: 3, background: '#000000' },
+    })
       .composite(rowComposites)
       .png()
       .toFile(rowPath)
@@ -272,14 +339,24 @@ export async function renderMosaic(args: {
 
   args.onLog?.('Compositing row strips into final canvas')
   const rowComposites = rowFiles.map((rowPath, row) => ({ input: rowPath, left: 0, top: row * layout.tileHeight }))
-  const base = sharp({ create: { width: layout.outputWidth, height: layout.outputHeight, channels: 3, background: '#000000' } })
+  const base = sharp({
+    create: { width: layout.outputWidth, height: layout.outputHeight, channels: 3, background: '#000000' },
+  })
   let mosaicBuffer = await base.composite(rowComposites).png().toBuffer()
   renderCompleted += 1
   progress('Compositing row strips into final canvas')
   if (args.config.mainImageOpacity > 0) {
     args.onLog?.(`Blending main image influence at opacity ${args.config.mainImageOpacity}`)
-    const overlay = await sharp(args.mainBuffer).rotate().resize(layout.outputWidth, layout.outputHeight, { fit: 'cover' }).ensureAlpha(args.config.mainImageOpacity).png().toBuffer()
-    mosaicBuffer = await sharp(mosaicBuffer).composite([{ input: overlay }]).png().toBuffer()
+    const overlay = await sharp(args.mainBuffer)
+      .rotate()
+      .resize(layout.outputWidth, layout.outputHeight, { fit: 'cover' })
+      .ensureAlpha(args.config.mainImageOpacity)
+      .png()
+      .toBuffer()
+    mosaicBuffer = await sharp(mosaicBuffer)
+      .composite([{ input: overlay }])
+      .png()
+      .toBuffer()
   }
   renderCompleted += 1
   progress('Applying main image blend')
@@ -320,9 +397,12 @@ async function colorMatchedTile(buffer: Buffer, target: RGB, average: RGB, stren
   if (strength <= 0) return buffer
   const sourceHsl = rgbToHsl(average)
   const targetHsl = rgbToHsl(target)
-  const brightness = clamp(1 + ((targetHsl.l / Math.max(sourceHsl.l, 0.08)) - 1) * strength, 0.65, 1.45)
-  const saturation = clamp(1 + ((targetHsl.s / Math.max(sourceHsl.s, 0.18)) - 1) * strength, 0.55, 1.8)
-  const hueDelta = sourceHsl.s > 0.08 && targetHsl.s > 0.08 ? Math.round(normalizeHue(shortestHueDelta(sourceHsl.h, targetHsl.h) * strength)) : 0
+  const brightness = clamp(1 + (targetHsl.l / Math.max(sourceHsl.l, 0.08) - 1) * strength, 0.65, 1.45)
+  const saturation = clamp(1 + (targetHsl.s / Math.max(sourceHsl.s, 0.18) - 1) * strength, 0.55, 1.8)
+  const hueDelta =
+    sourceHsl.s > 0.08 && targetHsl.s > 0.08
+      ? Math.round(normalizeHue(shortestHueDelta(sourceHsl.h, targetHsl.h) * strength))
+      : 0
   return sharp(buffer)
     .modulate({ brightness, saturation, hue: hueDelta })
     .toColorspace('srgb')
@@ -361,4 +441,9 @@ function clamp(value: number, min: number, max: number) {
 
 function safeName(value: string) {
   return value.replace(/[^a-zA-Z0-9_-]/g, '_')
+}
+
+function requiredSourcePath(candidate: TileCandidate) {
+  if (!candidate.sourcePath) throw new Error(`Tile candidate ${candidate.assetId} has no source image`)
+  return candidate.sourcePath
 }

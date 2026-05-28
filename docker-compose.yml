@@ -1,0 +1,14 @@
+services:
+  immich-photo-mosaic:
+    build: .
+    container_name: immich-photo-mosaic
+    user: "1000:1000"
+    ports:
+      - "5465:5000"
+    environment:
+      IMMICH_API_KEY: ${IMMICH_API_KEY}
+      IMMICH_BASE_URL: ${IMMICH_BASE_URL}
+    volumes:
+      - ./config:/app/config
+      - ./output:/app/output
+    restart: unless-stopped

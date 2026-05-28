@@ -7,10 +7,5 @@ import { defineConfig } from 'vite'
 export default defineConfig({
   server: { port: 5000 },
   resolve: { tsconfigPaths: true },
-  plugins: [
-    tailwindcss(),
-    tanstackStart({ srcDirectory: 'src' }),
-    viteReact(),
-    nitro(),
-  ],
+  plugins: [tailwindcss(), tanstackStart({ srcDirectory: 'src' }), viteReact(), nitro()],
 })

@@ -5,7 +5,9 @@ describe('ImmichClient', () => {
   it('sanitizes base URLs and builds preview URLs', () => {
     const client = new ImmichClient({ baseUrl: 'http://immich.local:2283/', apiKey: 'key' })
     expect(client.baseUrl).toBe('http://immich.local:2283/api')
-    expect(client.buildUrl('/assets/a%2Fb/thumbnail', { size: 'preview' })).toBe('http://immich.local:2283/api/assets/a%2Fb/thumbnail?size=preview')
+    expect(client.buildUrl('/assets/a%2Fb/thumbnail', { size: 'preview' })).toBe(
+      'http://immich.local:2283/api/assets/a%2Fb/thumbnail?size=preview',
+    )
   })
 
   it('posts search metadata with people, album, date, and image type', async () => {
@@ -15,9 +17,22 @@ describe('ImmichClient', () => {
       return Response.json({ assets: { items: [], nextPage: null } })
     }) as any
     const client = new ImmichClient({ baseUrl: 'http://host', apiKey: 'key', fetchFn })
-    await client.searchAssets({ personIds: ['p1'], albumIds: ['a1'], takenAfter: '2020-01-01', takenBefore: '2021-01-01' })
+    await client.searchAssets({
+      personIds: ['p1'],
+      albumIds: ['a1'],
+      takenAfter: '2020-01-01',
+      takenBefore: '2021-01-01',
+    })
     expect(captured[0]?.url).toBe('http://host/api/search/metadata')
-    expect(captured[0]?.body).toMatchObject({ personIds: ['p1'], albumIds: ['a1'], takenAfter: '2020-01-01', takenBefore: '2021-01-01', type: 'IMAGE', page: 1, withPeople: false })
+    expect(captured[0]?.body).toMatchObject({
+      personIds: ['p1'],
+      albumIds: ['a1'],
+      takenAfter: '2020-01-01',
+      takenBefore: '2021-01-01',
+      type: 'IMAGE',
+      page: 1,
+      withPeople: false,
+    })
   })
 
   it('fetches every available search page when no limit is provided', async () => {
@@ -46,7 +61,25 @@ describe('ImmichClient', () => {
     }) as any
     const client = new ImmichClient({ baseUrl: 'http://host', apiKey: 'key', fetchFn })
     const page = await client.searchAssetsPage({ page: 4, size: 80 })
-    expect(page).toEqual({ items: [{ id: 'asset-4', originalFileName: null, type: null, fileCreatedAt: null, localDateTime: null, width: null, height: null, isArchived: null, isFavorite: null, isHidden: null, visibility: null }], page: 4, hasMore: true })
+    expect(page).toEqual({
+      items: [
+        {
+          id: 'asset-4',
+          originalFileName: null,
+          type: null,
+          fileCreatedAt: null,
+          localDateTime: null,
+          width: null,
+          height: null,
+          isArchived: null,
+          isFavorite: null,
+          isHidden: null,
+          visibility: null,
+        },
+      ],
+      page: 4,
+      hasMore: true,
+    })
   })
 
   it('normalizes invalid page and size values', async () => {

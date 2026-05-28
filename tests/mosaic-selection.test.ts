@@ -11,9 +11,13 @@ describe('tile selection', () => {
     ]
     const targets: Array<RGB> = Array.from({ length: 6 }, () => [0, 0, 0])
     const selected = selectTilesForCells(targets, candidates, { repeatLimit: 2, minRepeatSpacing: 1, randomSeed: 1 })
-    const counts = selected.reduce<Record<string, number>>((acc, item) => ({ ...acc, [item.candidate.assetId]: (acc[item.candidate.assetId] ?? 0) + 1 }), {})
+    const counts = selected.reduce<Record<string, number>>((acc, item) => {
+      acc[item.candidate.assetId] = (acc[item.candidate.assetId] ?? 0) + 1
+      return acc
+    }, {})
     expect(Math.max(...Object.values(counts))).toBeLessThanOrEqual(2)
-    for (let i = 1; i < selected.length; i += 1) expect(selected[i].candidate.assetId).not.toBe(selected[i - 1].candidate.assetId)
+    for (let i = 1; i < selected.length; i += 1)
+      expect(selected[i].candidate.assetId).not.toBe(selected[i - 1].candidate.assetId)
   })
 
   it('avoids placing repeat tiles near each other in the grid when alternatives exist', () => {

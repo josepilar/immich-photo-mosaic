@@ -3,7 +3,15 @@ import path from 'node:path'
 import { appConfigSchema, defaultConfig, type AppConfig, type MosaicConfig } from './config'
 import { ImmichClient, type Asset } from './immich'
 import { outputDir, uploadDir } from './paths'
-import { brightnessAndSharpness, imageAverage, looksLikeScreenshot, outputFolderName, renderMosaic, shuffleDeterministic, type TileCandidate } from './mosaic'
+import {
+  brightnessAndSharpness,
+  imageAverage,
+  looksLikeScreenshot,
+  outputFolderName,
+  renderMosaic,
+  shuffleDeterministic,
+  type TileCandidate,
+} from './mosaic'
 
 export type MainImageSelection = { type: 'immich'; assetId: string } | { type: 'upload'; uploadId: string }
 
@@ -49,7 +57,12 @@ export function getProgress() {
 
 export function cancelJob() {
   if (!controller || current.status !== 'running') return false
-  current = { ...current, status: 'cancelling', message: 'Cancellation requested', logs: [...current.logs, 'Cancellation requested'] }
+  current = {
+    ...current,
+    status: 'cancelling',
+    message: 'Cancellation requested',
+    logs: [...current.logs, 'Cancellation requested'],
+  }
   controller.abort()
   return true
 }
@@ -65,10 +78,19 @@ export function startJob(request: StartJobRequest) {
   current.stage = 'starting'
   current.message = 'Starting mosaic job'
   log('Job accepted')
-  void runJob(request, controller.signal).catch((error) => {
-    log(`Job failed: ${String(error.message ?? error)}`)
-    current = { ...current, status: error.name === 'AbortError' ? 'cancelled' : 'error', error: String(error.message ?? error), message: String(error.message ?? error) }
-  }).finally(() => { controller = null })
+  void runJob(request, controller.signal)
+    .catch((error) => {
+      log(`Job failed: ${String(error.message ?? error)}`)
+      current = {
+        ...current,
+        status: error.name === 'AbortError' ? 'cancelled' : 'error',
+        error: String(error.message ?? error),
+        message: String(error.message ?? error),
+      }
+    })
+    .finally(() => {
+      controller = null
+    })
 }
 
 async function runJob(request: StartJobRequest, signal: AbortSignal) {
@@ -78,8 +100,12 @@ async function runJob(request: StartJobRequest, signal: AbortSignal) {
   const albumIds = Array.isArray(request.albumIds) ? request.albumIds : []
   const config = appConfigSchema.parse(request.config ?? defaultConfig)
   const mosaic = config.mosaic
-  log(`Configuration parsed: output=${mosaic.outputWidth}x${mosaic.outputHeight}, tileSize=${mosaic.tileSize}, poolLimit=${mosaic.candidatePoolLimit}, usePreviews=${mosaic.usePreviews}`)
-  log(`Filters: people=${personIds.length ? personIds.join(',') : 'any'}, albums=${albumIds.length ? albumIds.join(',') : 'none'}, dateFrom=${request.dateFrom || 'none'}, dateTo=${request.dateTo || 'none'}`)
+  log(
+    `Configuration parsed: output=${mosaic.outputWidth}x${mosaic.outputHeight}, tileSize=${mosaic.tileSize}, poolLimit=${mosaic.candidatePoolLimit}, usePreviews=${mosaic.usePreviews}`,
+  )
+  log(
+    `Filters: people=${personIds.length ? personIds.join(',') : 'any'}, albums=${albumIds.length ? albumIds.join(',') : 'none'}, dateFrom=${request.dateFrom || 'none'}, dateTo=${request.dateTo || 'none'}`,
+  )
   const client = ImmichClient.fromEnv(config)
   update('connecting', 0, 1, 'Validating Immich connection')
   log('Validating Immich connection')
@@ -103,7 +129,7 @@ async function runJob(request: StartJobRequest, signal: AbortSignal) {
       includeVideos: mosaic.includeVideos,
     })
     log(`Found ${assets.length} assets for source ${personId ?? 'any person'}`)
-    assets.forEach((asset) => allAssets.set(asset.id, asset))
+    for (const asset of assets) allAssets.set(asset.id, asset)
     current.stats.assetsFound += assets.length
     current.completed += 1
   }
@@ -122,13 +148,20 @@ async function runJob(request: StartJobRequest, signal: AbortSignal) {
 
   update('main-image', 0, 1, 'Loading main mosaic image')
   log(`Loading main image from ${request.mainImage.type}`)
-  const mainBuffer = request.mainImage.type === 'immich'
-    ? (await client.downloadAsset(request.mainImage.assetId, false)).bytes
-    : await fs.readFile(safeUploadPath(request.mainImage.uploadId))
+  const mainBuffer =
+    request.mainImage.type === 'immich'
+      ? (await client.downloadAsset(request.mainImage.assetId, false)).bytes
+      : await fs.readFile(safeUploadPath(request.mainImage.uploadId))
   log(`Main image loaded: ${mainBuffer.byteLength} bytes`)
   current.completed = 1
 
-  const folder = outputFolderName({ people: personIds, albums: albumIds, dates: [request.dateFrom, request.dateTo], main: request.mainImage, mosaic })
+  const folder = outputFolderName({
+    people: personIds,
+    albums: albumIds,
+    dates: [request.dateFrom, request.dateTo],
+    main: request.mainImage,
+    mosaic,
+  })
   const folderPath = path.join(outputDir(), folder)
   await attachFolderLog(folderPath)
   log(`Output folder selected: ${folderPath}`)
@@ -138,18 +171,24 @@ async function runJob(request: StartJobRequest, signal: AbortSignal) {
 
   update('candidates', 0, pool.length, `Analyzing ${pool.length} candidate images`)
   const candidates: Array<TileCandidate> = []
-  for (const [index, asset] of pool.entries()) {
+  let analyzed = 0
+  const candidateConcurrency = mosaic.usePreviews ? 6 : 3
+  await mapLimit(pool, candidateConcurrency, async (asset, index) => {
     throwIfAborted(signal)
     try {
-      if (index === 0 || (index + 1) % 25 === 0 || index + 1 === pool.length) log(`Analyzing candidate ${index + 1}/${pool.length}`)
       const { bytes } = await client.downloadAsset(asset.id, mosaic.usePreviews)
       const metrics = await brightnessAndSharpness(bytes)
       if (await looksLikeScreenshot(bytes)) {
         current.stats.candidatesRejected += 1
         log(`Rejected ${asset.id}: looks like a screenshot or UI capture`)
-      } else if (mosaic.brightnessFilterEnabled && (metrics.brightness < mosaic.minBrightness || metrics.brightness > mosaic.maxBrightness)) {
+      } else if (
+        mosaic.brightnessFilterEnabled &&
+        (metrics.brightness < mosaic.minBrightness || metrics.brightness > mosaic.maxBrightness)
+      ) {
         current.stats.candidatesRejected += 1
-        log(`Rejected ${asset.id}: brightness ${metrics.brightness.toFixed(3)} outside ${mosaic.minBrightness}-${mosaic.maxBrightness}`)
+        log(
+          `Rejected ${asset.id}: brightness ${metrics.brightness.toFixed(3)} outside ${mosaic.minBrightness}-${mosaic.maxBrightness}`,
+        )
       } else if (mosaic.blurFilterEnabled && metrics.sharpness < mosaic.minSharpness) {
         current.stats.candidatesRejected += 1
         log(`Rejected ${asset.id}: sharpness ${metrics.sharpness.toFixed(1)} below ${mosaic.minSharpness}`)
@@ -163,9 +202,18 @@ async function runJob(request: StartJobRequest, signal: AbortSignal) {
       current.stats.candidatesRejected += 1
       log(`Rejected ${asset.id}: ${String((error as Error).message ?? error)}`)
     }
-    current.completed += 1
-  }
-  log(`Candidate analysis complete: accepted=${current.stats.candidatesAccepted}, rejected=${current.stats.candidatesRejected}`)
+    analyzed += 1
+    current = {
+      ...current,
+      completed: analyzed,
+      stats: { ...current.stats, elapsedMs: startedAt ? Date.now() - startedAt : 0 },
+    }
+    if (analyzed === 1 || analyzed % 25 === 0 || analyzed === pool.length)
+      log(`Analyzed candidate ${analyzed}/${pool.length}`)
+  })
+  log(
+    `Candidate analysis complete: accepted=${current.stats.candidatesAccepted}, rejected=${current.stats.candidatesRejected}`,
+  )
   if (!candidates.length) throw new Error('No candidate tiles passed the current filters')
   update('rendering', 0, 1, `Rendering mosaic to ${folder}`)
   log('Starting mosaic render')
@@ -183,7 +231,18 @@ async function runJob(request: StartJobRequest, signal: AbortSignal) {
     log('Temporary candidate source cache removed')
   }
   current.stats.estimatedOutputPixels = result.layout.outputWidth * result.layout.outputHeight
-  await fs.writeFile(path.join(folderPath, 'metadata.json'), JSON.stringify({ request: { ...request, config: { ...config, immich: config.immich } }, result: { layout: result.layout, cells: result.cells }, stats: current.stats }, null, 2))
+  await fs.writeFile(
+    path.join(folderPath, 'metadata.json'),
+    JSON.stringify(
+      {
+        request: { ...request, config: { ...config, immich: config.immich } },
+        result: { layout: result.layout, cells: result.cells },
+        stats: current.stats,
+      },
+      null,
+      2,
+    ),
+  )
   log('Metadata written')
 
   current = {
@@ -220,7 +279,14 @@ function update(stage: string, completed: number, total: number, message: string
 }
 
 function setProgress(stage: string, completed: number, total: number, message: string, writeLog = false) {
-  current = { ...current, stage, completed, total, message, stats: { ...current.stats, elapsedMs: startedAt ? Date.now() - startedAt : 0 } }
+  current = {
+    ...current,
+    stage,
+    completed,
+    total,
+    message,
+    stats: { ...current.stats, elapsedMs: startedAt ? Date.now() - startedAt : 0 },
+  }
   if (!writeLog) return
   log(`Stage update: ${stage} (${completed}/${total}) ${message}`)
 }
@@ -269,6 +335,18 @@ function safeFileName(value: string) {
   return value.replace(/[^a-zA-Z0-9_.-]/g, '_').slice(0, 120)
 }
 
+async function mapLimit<T>(items: Array<T>, limit: number, mapper: (item: T, index: number) => Promise<void>) {
+  let nextIndex = 0
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (nextIndex < items.length) {
+      const index = nextIndex
+      nextIndex += 1
+      await mapper(items[index], index)
+    }
+  })
+  await Promise.all(workers)
+}
+
 function throwIfAborted(signal: AbortSignal) {
   if (signal.aborted) {
     const error = new Error('Job cancelled')
@@ -285,6 +363,13 @@ function emptyProgress(): JobProgress {
     total: 0,
     message: '',
     logs: [],
-    stats: { assetsFound: 0, assetsDeduped: 0, candidatesAccepted: 0, candidatesRejected: 0, estimatedOutputPixels: 0, elapsedMs: 0 },
+    stats: {
+      assetsFound: 0,
+      assetsDeduped: 0,
+      candidatesAccepted: 0,
+      candidatesRejected: 0,
+      estimatedOutputPixels: 0,
+      elapsedMs: 0,
+    },
   }
 }

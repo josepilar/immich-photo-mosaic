@@ -30,7 +30,9 @@ export type SearchOptions = {
   size?: number
 }
 
-const peopleResponseSchema = z.object({ people: z.array(z.object({ id: z.string(), name: z.string().nullable().optional() })) })
+const peopleResponseSchema = z.object({
+  people: z.array(z.object({ id: z.string(), name: z.string().nullable().optional() })),
+})
 const albumSchema = z.object({
   id: z.string(),
   albumName: z.string(),
@@ -45,7 +47,10 @@ const searchResponseSchema = z.object({
 })
 
 export class ImmichError extends Error {
-  constructor(message: string, readonly status?: number) {
+  constructor(
+    message: string,
+    readonly status?: number,
+  ) {
     super(message)
   }
 }
@@ -104,7 +109,7 @@ export class ImmichClient {
 
   async searchAssets(options: SearchOptions): Promise<Array<Asset>> {
     const all: Array<Asset> = []
-    const limit = Number.isFinite(options.limit) && options.limit! > 0 ? options.limit! : Number.POSITIVE_INFINITY
+    const limit = positiveNumber(options.limit, Number.POSITIVE_INFINITY)
     let page = 1
     while (all.length < limit && page <= 1000) {
       const body = {
@@ -127,8 +132,8 @@ export class ImmichClient {
   }
 
   async searchAssetsPage(options: SearchOptions): Promise<{ items: Array<Asset>; page: number; hasMore: boolean }> {
-    const page = Number.isFinite(options.page) && options.page! > 0 ? Math.trunc(options.page!) : 1
-    const size = Number.isFinite(options.size) && options.size! > 0 ? Math.min(200, Math.trunc(options.size!)) : 100
+    const page = Math.trunc(positiveNumber(options.page, 1))
+    const size = Math.min(200, Math.trunc(positiveNumber(options.size, 100)))
     const body = {
       personIds: options.personIds?.length ? options.personIds : undefined,
       albumIds: options.albumIds?.length ? options.albumIds : undefined,
@@ -173,10 +178,12 @@ export class ImmichClient {
   private async requestBytes(path: string, query?: Record<string, string>) {
     const response = await this.request(path, query)
     const contentLength = Number(response.headers.get('content-length') ?? 0)
-    if (contentLength > MAX_IMAGE_BYTES) throw new ImmichError(`Image download is too large (${contentLength} bytes)`, 413)
+    if (contentLength > MAX_IMAGE_BYTES)
+      throw new ImmichError(`Image download is too large (${contentLength} bytes)`, 413)
     const contentType = response.headers.get('content-type') ?? 'image/jpeg'
     const bytes = Buffer.from(await response.arrayBuffer())
-    if (bytes.byteLength > MAX_IMAGE_BYTES) throw new ImmichError(`Image download is too large (${bytes.byteLength} bytes)`, 413)
+    if (bytes.byteLength > MAX_IMAGE_BYTES)
+      throw new ImmichError(`Image download is too large (${bytes.byteLength} bytes)`, 413)
     return { bytes, contentType }
   }
 
@@ -214,10 +221,15 @@ function normalizeAsset(asset: any): Asset {
     fileCreatedAt: asset.fileCreatedAt ?? null,
     localDateTime: asset.localDateTime ?? null,
     width: asset.exifInfo?.exifImageWidth ?? asset.exifInfo?.imageWidth ?? asset.width ?? asset.originalWidth ?? null,
-    height: asset.exifInfo?.exifImageHeight ?? asset.exifInfo?.imageHeight ?? asset.height ?? asset.originalHeight ?? null,
+    height:
+      asset.exifInfo?.exifImageHeight ?? asset.exifInfo?.imageHeight ?? asset.height ?? asset.originalHeight ?? null,
     isArchived: asset.isArchived ?? null,
     isFavorite: asset.isFavorite ?? null,
     isHidden: asset.isHidden ?? (asset.visibility === 'hidden' ? true : null),
     visibility: asset.visibility ?? null,
   }
+}
+
+function positiveNumber(value: number | undefined, fallback: number) {
+  return Number.isFinite(value) && value !== undefined && value > 0 ? value : fallback
 }

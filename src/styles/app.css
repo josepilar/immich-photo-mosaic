@@ -15,7 +15,10 @@ body {
     linear-gradient(180deg, #0b0f14 0%, #0e1218 100%);
 }
 
-button, input, select, textarea {
+button,
+input,
+select,
+textarea {
   font: inherit;
 }
 

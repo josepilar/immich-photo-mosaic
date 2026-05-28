@@ -1,5 +1,7 @@
 import fs from 'node:fs/promises'
+import crypto from 'node:crypto'
 import path from 'node:path'
+import sharp from 'sharp'
 import { z, ZodError } from 'zod'
 import { loadConfig, saveConfig, getImmichEnv, appConfigSchema } from './config'
 import { ImmichClient, ImmichError } from './immich'
@@ -8,6 +10,8 @@ import { configDir, outputDir, uploadDir } from './paths'
 
 const MAX_UPLOAD_BYTES = 100 * 1024 * 1024
 const IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp'])
+const outputFolderSchema = z.string().regex(/^mosaic-[a-f0-9]{12}$/, 'Invalid output folder')
+const outputFoldersSchema = z.object({ folders: z.array(outputFolderSchema).min(1).max(100) })
 
 const startJobSchema = z.object({
   personIds: z.array(z.string()).default([]),
@@ -30,12 +34,14 @@ export async function handleApi(request: Request, splat: string) {
     if (request.method === 'GET' && splat === 'config') return json(await loadConfig())
     if (request.method === 'PUT' && splat === 'config') return await putConfig(request)
     if (request.method === 'GET' && splat === 'people') return await people()
-    if (request.method === 'GET' && parts[0] === 'people' && parts[2] === 'thumbnail') return await peopleThumbnail(parts[1])
+    if (request.method === 'GET' && parts[0] === 'people' && parts[2] === 'thumbnail')
+      return await peopleThumbnail(parts[1])
     if (request.method === 'GET' && splat === 'albums') return await albums()
     if (request.method === 'GET' && splat === 'asset-count-preview') return await assetCountPreview(url)
     if (request.method === 'GET' && splat === 'assets/search') return await assetSearch(url)
     if (request.method === 'GET' && splat === 'assets/search-page') return await assetSearchPage(url)
-    if (request.method === 'GET' && parts[0] === 'assets' && parts[2] === 'thumbnail') return await assetThumbnail(parts[1])
+    if (request.method === 'GET' && parts[0] === 'assets' && parts[2] === 'thumbnail')
+      return await assetThumbnail(parts[1])
     if (request.method === 'POST' && splat === 'uploads') return await upload(request)
     if (request.method === 'GET' && splat === 'jobs/current') return json(getProgress())
     if (request.method === 'POST' && splat === 'jobs') return await postJob(request)
@@ -43,7 +49,8 @@ export async function handleApi(request: Request, splat: string) {
     if (request.method === 'GET' && splat === 'outputs') return await outputs()
     if (request.method === 'DELETE' && splat === 'outputs') return await deleteOutputs(request)
     if (request.method === 'POST' && splat === 'outputs/archive') return await archiveOutputs(request)
-    if (request.method === 'GET' && parts[0] === 'outputs' && parts.length >= 3) return await outputFile(parts[1], parts.slice(2).join('/'))
+    if (request.method === 'GET' && parts[0] === 'outputs' && parts.length >= 3)
+      return await outputFile(parts[1], parts.slice(2).join('/'))
     return text('Not found', 404)
   } catch (error) {
     const message = String((error as Error).message ?? error)
@@ -70,7 +77,14 @@ async function status() {
   } else {
     error = 'IMMICH_API_KEY and IMMICH_BASE_URL must be set'
   }
-  return json({ connected, version, error, env: { hasApiKey: Boolean(env.apiKey), baseUrl: env.baseUrl || null }, writable: { config: writable[0], output: writable[1] }, requiredScopes: ['album.read', 'asset.download', 'asset.read', 'asset.view', 'person.read', 'server.about'] })
+  return json({
+    connected,
+    version,
+    error,
+    env: { hasApiKey: Boolean(env.apiKey), baseUrl: env.baseUrl || null },
+    writable: { config: writable[0], output: writable[1] },
+    requiredScopes: ['album.read', 'asset.download', 'asset.read', 'asset.view', 'person.read', 'server.about'],
+  })
 }
 
 async function putConfig(request: Request) {
@@ -110,16 +124,20 @@ async function assetCountPreview(url: URL) {
 
 async function assetSearch(url: URL) {
   const client = ImmichClient.fromEnv(await loadConfig())
-  return json(await client.searchAssets(searchOptionsFromUrl(url, boundedInt(url.searchParams.get('limit'), 80, 1, 1000))))
+  return json(
+    await client.searchAssets(searchOptionsFromUrl(url, boundedInt(url.searchParams.get('limit'), 80, 1, 1000))),
+  )
 }
 
 async function assetSearchPage(url: URL) {
   const client = ImmichClient.fromEnv(await loadConfig())
-  return json(await client.searchAssetsPage({
-    ...searchOptionsFromUrl(url),
-    page: boundedInt(url.searchParams.get('page'), 1, 1, 1000),
-    size: boundedInt(url.searchParams.get('limit'), 80, 1, 200),
-  }))
+  return json(
+    await client.searchAssetsPage({
+      ...searchOptionsFromUrl(url),
+      page: boundedInt(url.searchParams.get('page'), 1, 1, 1000),
+      size: boundedInt(url.searchParams.get('limit'), 80, 1, 200),
+    }),
+  )
 }
 
 async function upload(request: Request) {
@@ -132,8 +150,10 @@ async function upload(request: Request) {
   await fs.mkdir(uploadDir(), { recursive: true })
   const ext = extensionFromType(file.type) || extensionFromName(file.name)
   if (!ext) return json({ error: 'file must be a JPEG, PNG, or WebP image' }, 400)
-  const uploadId = `${Date.now()}-${Math.random().toString(16).slice(2)}${ext}`
-  await fs.writeFile(path.join(uploadDir(), uploadId), Buffer.from(await file.arrayBuffer()))
+  const bytes = Buffer.from(await file.arrayBuffer())
+  await validateImageUpload(bytes)
+  const uploadId = `${Date.now()}-${crypto.randomUUID()}${ext}`
+  await fs.writeFile(path.join(uploadDir(), uploadId), bytes)
   return json({ uploadId, name: file.name })
 }
 
@@ -146,21 +166,37 @@ async function postJob(request: Request) {
 async function outputs() {
   await fs.mkdir(outputDir(), { recursive: true })
   const entries = await fs.readdir(outputDir(), { withFileTypes: true })
-  const folders = await Promise.all(entries.filter((entry) => entry.isDirectory()).map(async (entry) => {
-    const folder = entry.name
-    const stat = await fs.stat(path.join(outputDir(), folder)).catch(() => null)
-    const metadataPath = path.join(outputDir(), folder, 'metadata.json')
-    let metadata = null
-    try { metadata = JSON.parse(await fs.readFile(metadataPath, 'utf8')) } catch {}
-    const files: Array<string> = await fs.readdir(path.join(outputDir(), folder)).catch(() => [])
-    const finalName = files.find((file) => file.startsWith('final.')) ?? null
-    const hasPreview = files.includes('preview.jpg')
-    return { folder, finalName, hasPreview, complete: Boolean(finalName && hasPreview), previewUrl: hasPreview ? `/api/outputs/${folder}/preview.jpg` : null, finalUrl: finalName ? `/api/outputs/${folder}/${finalName}` : null, metadata, modifiedTime: stat?.mtimeMs ?? 0 }
-  }))
+  const folders = await Promise.all(
+    entries
+      .filter((entry) => entry.isDirectory())
+      .map(async (entry) => {
+        const folder = entry.name
+        const stat = await fs.stat(path.join(outputDir(), folder)).catch(() => null)
+        const metadataPath = path.join(outputDir(), folder, 'metadata.json')
+        let metadata = null
+        try {
+          metadata = JSON.parse(await fs.readFile(metadataPath, 'utf8'))
+        } catch {}
+        const files: Array<string> = await fs.readdir(path.join(outputDir(), folder)).catch(() => [])
+        const finalName = files.find((file) => file.startsWith('final.')) ?? null
+        const hasPreview = files.includes('preview.jpg')
+        return {
+          folder,
+          finalName,
+          hasPreview,
+          complete: Boolean(finalName && hasPreview),
+          previewUrl: hasPreview ? `/api/outputs/${folder}/preview.jpg` : null,
+          finalUrl: finalName ? `/api/outputs/${folder}/${finalName}` : null,
+          metadata,
+          modifiedTime: stat?.mtimeMs ?? 0,
+        }
+      }),
+  )
   return json(folders.sort((a, b) => b.modifiedTime - a.modifiedTime))
 }
 
 async function outputFile(folder: string, file: string) {
+  if (!outputFolderSchema.safeParse(folder).success || !isServableOutputFile(file)) return text('Invalid path', 400)
   const root = path.resolve(outputDir())
   const target = path.resolve(root, folder, file)
   if (!isPathInside(root, target)) return text('Invalid path', 400)
@@ -169,7 +205,7 @@ async function outputFile(folder: string, file: string) {
 }
 
 async function deleteOutputs(request: Request) {
-  const body = z.object({ folders: z.array(z.string()).min(1).max(100) }).parse(await request.json())
+  const body = outputFoldersSchema.parse(await request.json())
   const root = path.resolve(outputDir())
   const deleted: Array<string> = []
   for (const folder of body.folders) {
@@ -185,7 +221,7 @@ async function deleteOutputs(request: Request) {
 }
 
 async function archiveOutputs(request: Request) {
-  const body = z.object({ folders: z.array(z.string()).min(1).max(100) }).parse(await request.json())
+  const body = outputFoldersSchema.parse(await request.json())
   const files = await collectArchiveFiles(body.folders)
   if (!files.length) return json({ error: 'No downloadable output files found' }, 404)
   const stream = new ReadableStream<Uint8Array>({
@@ -254,7 +290,10 @@ function writeString(buffer: Buffer, value: string, offset: number, length: numb
 }
 
 function writeOctal(buffer: Buffer, value: number, offset: number, length: number) {
-  const text = value.toString(8).padStart(length - 1, '0').slice(0, length - 1)
+  const text = value
+    .toString(8)
+    .padStart(length - 1, '0')
+    .slice(0, length - 1)
   buffer.write(`${text}\0`, offset, length, 'ascii')
 }
 
@@ -281,7 +320,10 @@ async function isWritable(dir: string) {
 }
 
 function csv(value: string | null) {
-  return (value ?? '').split(',').map((item) => item.trim()).filter(Boolean)
+  return (value ?? '')
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean)
 }
 
 function boundedInt(value: string | null, fallback: number, min: number, max: number) {
@@ -300,7 +342,7 @@ function errorStatus(error: unknown) {
   if (error instanceof ImmichError) return error.status ?? 502
   const message = String((error as Error).message ?? error)
   if (message.includes('already running')) return 409
-  if (message.includes('must be set') || message.includes('Invalid path')) return 400
+  if (message.includes('must be set') || message.includes('Invalid path') || message.includes('valid JPEG')) return 400
   return 500
 }
 
@@ -335,5 +377,25 @@ function contentType(file: string) {
   if (file.endsWith('.png')) return 'image/png'
   if (file.endsWith('.webp')) return 'image/webp'
   if (file.endsWith('.json')) return 'application/json'
+  if (file.endsWith('.log')) return 'text/plain'
   return 'image/jpeg'
+}
+
+function isServableOutputFile(file: string) {
+  return (
+    file === 'preview.jpg' ||
+    file === 'metadata.json' ||
+    file === 'process.log' ||
+    /^final\.(png|jpe?g|webp)$/.test(file)
+  )
+}
+
+async function validateImageUpload(bytes: Buffer) {
+  try {
+    const metadata = await sharp(bytes, { limitInputPixels: 80_000_000 }).metadata()
+    if (!metadata.width || !metadata.height || !['jpeg', 'png', 'webp'].includes(metadata.format ?? ''))
+      throw new Error('unsupported image')
+  } catch {
+    throw new Error('file must be a valid JPEG, PNG, or WebP image')
+  }
 }

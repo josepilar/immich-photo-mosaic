@@ -1,4 +1,4 @@
-import * as React from 'react'
+import type * as React from 'react'
 import { cn } from '~/utils/cn'
 
 export function Tabs({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
@@ -9,7 +9,11 @@ export function TabsList({ className, ...props }: React.HTMLAttributes<HTMLDivEl
   return <div className={cn('inline-flex rounded-lg border border-slate-800 bg-slate-950 p-1', className)} {...props} />
 }
 
-export function TabsTrigger({ active, className, ...props }: React.ButtonHTMLAttributes<HTMLButtonElement> & { active?: boolean }) {
+export function TabsTrigger({
+  active,
+  className,
+  ...props
+}: React.ButtonHTMLAttributes<HTMLButtonElement> & { active?: boolean }) {
   return (
     <button
       className={cn(
