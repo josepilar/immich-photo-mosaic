@@ -232,11 +232,6 @@ function App() {
       setAssets(nextAssets)
       setAssetPage(data.page)
       setHasMoreImages(data.hasMore)
-      setMessage(
-        data.hasMore
-          ? `Loaded ${nextAssets.length} Immich images. Scroll for more.`
-          : 'Loaded all matching Immich images.',
-      )
     } catch (error) {
       setMessage(String((error as Error).message ?? error))
     } finally {
@@ -363,15 +358,14 @@ function App() {
         <header className="mb-6 rounded-2xl border border-white/10 bg-zinc-800 p-6 lg:p-8">
           <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
             <div className="max-w-3xl">
-              <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-white/10 bg-zinc-900 px-3 py-1 text-xs font-medium uppercase tracking-[0.22em] text-zinc-300">
-                Immich photo mosaic
+              <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-white/10 bg-zinc-900 px-3 py-1 text-xs font-medium text-zinc-300">
+                Immich mosaic
               </div>
               <h1 className="text-4xl font-semibold tracking-tight text-stone-100 sm:text-5xl lg:text-6xl">
-                Turn a library into a photo mosaic.
+                Make a photo mosaic from Immich.
               </h1>
               <p className="mt-4 max-w-2xl text-base leading-7 text-zinc-400">
-                Choose a target photo, curate source tiles from people, albums, and dates, then tune the render into a
-                high-resolution still image.
+                Pick the main photo, choose which photos can be used as tiles, adjust the settings, and render it.
               </p>
             </div>
             <ConnectionBadge connected={connected} status={status} onRefresh={boot} />
@@ -726,6 +720,14 @@ function MainImageSelector(props: {
               onScroll={onScroll}
               className="grid max-h-[28rem] grid-cols-2 gap-3 overflow-auto rounded-xl border border-white/10 bg-zinc-900 p-3 scrollbar-thin sm:grid-cols-3 md:grid-cols-4"
             >
+              {props.assets.length > 0 && (
+                <div className="col-span-full flex justify-end">
+                  <span className="rounded-full border border-white/10 bg-zinc-800 px-3 py-1 text-xs text-zinc-300">
+                    Loaded {props.assets.length} Immich images
+                    {props.hasMoreImages ? '. Scroll for more.' : '. All matching images loaded.'}
+                  </span>
+                </div>
+              )}
               {props.assets.map((asset) => (
                 <button
                   type="button"
@@ -751,9 +753,6 @@ function MainImageSelector(props: {
                 <div className="col-span-full py-6 text-center text-sm text-slate-400">
                   No images match the current filters.
                 </div>
-              )}
-              {props.assets.length > 0 && !props.hasMoreImages && (
-                <div className="col-span-full py-3 text-center text-xs text-slate-500">All matching images loaded</div>
               )}
             </div>
           </>
