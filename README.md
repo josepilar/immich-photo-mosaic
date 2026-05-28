@@ -2,6 +2,8 @@
 
 Generate still-image photo mosaics from an Immich library. Select one or more Immich people as the tile source, choose a target image from Immich or upload one locally, tune the mosaic settings, preview the result, and write the final image under `/app/output`.
 
+Inspired by [immich-automated-selfie-timelapse](https://github.com/ArnaudCrl/immich-automated-selfie-timelapse), especially the idea of using Immich as a source for small, focused image-generation tools.
+
 ## Requirements
 
 - Node.js 22 or newer for local development.
