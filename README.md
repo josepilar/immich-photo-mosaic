@@ -165,3 +165,11 @@ npm run check
 - If the connection panel reports unwritable volumes, make sure `config` and `output` exist and are writable by the container user.
 - If generation is slow, enable `Use Immich previews`, reduce output size, increase tile size, or lower the candidate pool limit.
 - If the result has too many repeated tiles, increase the candidate pool limit, select more source photos, lower output size, or raise tile size.
+
+## License
+
+This project is open source and available under the [MIT License](LICENSE).
+
+## Disclaimer
+
+This project was generated with assistance from AI. Review the code, configuration, and outputs before using it with important data or in production.
