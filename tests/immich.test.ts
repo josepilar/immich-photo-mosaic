@@ -48,4 +48,15 @@ describe('ImmichClient', () => {
     const page = await client.searchAssetsPage({ page: 4, size: 80 })
     expect(page).toEqual({ items: [{ id: 'asset-4', originalFileName: null, type: null, fileCreatedAt: null, localDateTime: null, width: null, height: null, isArchived: null, isFavorite: null, isHidden: null, visibility: null }], page: 4, hasMore: true })
   })
+
+  it('normalizes invalid page and size values', async () => {
+    const captured: Array<any> = []
+    const fetchFn = (async (_url: string, init: RequestInit) => {
+      captured.push(JSON.parse(String(init.body)))
+      return Response.json({ assets: { items: [], nextPage: null } })
+    }) as any
+    const client = new ImmichClient({ baseUrl: 'http://host', apiKey: 'key', fetchFn })
+    await client.searchAssetsPage({ page: Number.NaN, size: 5000 })
+    expect(captured[0]).toMatchObject({ page: 1, size: 200 })
+  })
 })

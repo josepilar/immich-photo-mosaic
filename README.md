@@ -43,7 +43,7 @@ chown -R 1000:1000 config output
 
 The UI persists mosaic settings to TOML. Important controls include output size or megapixel target, automatic or manual grid density, tile aspect ratio, tile fit mode, contain padding mode, main-image opacity, color matching strength, repeat/diversity limits, candidate pool size, Immich preview versus original downloads, brightness and blur filters, archive/hidden/favorite filters, random seed, output format, quality, and debug intermediates.
 
-The default tile fit is `contain` with blurred padding so source photos are not cropped unless you explicitly switch to `cover`.
+The default tile fit is `cover` and original Immich downloads are used for sharper tiles. Defaults target a balanced still image: 3200px wide, 64px tiles, and an 800-photo candidate pool before filters.
 
 ## Development
 

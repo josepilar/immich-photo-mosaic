@@ -50,6 +50,8 @@ export class ImmichError extends Error {
   }
 }
 
+const MAX_IMAGE_BYTES = 150 * 1024 * 1024
+
 export class ImmichClient {
   readonly baseUrl: string
   private readonly apiKey: string
@@ -102,7 +104,7 @@ export class ImmichClient {
 
   async searchAssets(options: SearchOptions): Promise<Array<Asset>> {
     const all: Array<Asset> = []
-    const limit = options.limit ?? Number.POSITIVE_INFINITY
+    const limit = Number.isFinite(options.limit) && options.limit! > 0 ? options.limit! : Number.POSITIVE_INFINITY
     let page = 1
     while (all.length < limit && page <= 1000) {
       const body = {
@@ -125,8 +127,8 @@ export class ImmichClient {
   }
 
   async searchAssetsPage(options: SearchOptions): Promise<{ items: Array<Asset>; page: number; hasMore: boolean }> {
-    const page = options.page ?? 1
-    const size = options.size ?? options.limit ?? 100
+    const page = Number.isFinite(options.page) && options.page! > 0 ? Math.trunc(options.page!) : 1
+    const size = Number.isFinite(options.size) && options.size! > 0 ? Math.min(200, Math.trunc(options.size!)) : 100
     const body = {
       personIds: options.personIds?.length ? options.personIds : undefined,
       albumIds: options.albumIds?.length ? options.albumIds : undefined,
@@ -170,8 +172,12 @@ export class ImmichClient {
 
   private async requestBytes(path: string, query?: Record<string, string>) {
     const response = await this.request(path, query)
+    const contentLength = Number(response.headers.get('content-length') ?? 0)
+    if (contentLength > MAX_IMAGE_BYTES) throw new ImmichError(`Image download is too large (${contentLength} bytes)`, 413)
     const contentType = response.headers.get('content-type') ?? 'image/jpeg'
-    return { bytes: Buffer.from(await response.arrayBuffer()), contentType }
+    const bytes = Buffer.from(await response.arrayBuffer())
+    if (bytes.byteLength > MAX_IMAGE_BYTES) throw new ImmichError(`Image download is too large (${bytes.byteLength} bytes)`, 413)
+    return { bytes, contentType }
   }
 
   private async request(path: string, query?: Record<string, string>, init: RequestInit = {}) {
@@ -191,6 +197,9 @@ export class ImmichClient {
         throw new ImmichError(`Immich API request failed: HTTP ${response.status}. ${body}`, response.status)
       }
       return response
+    } catch (error) {
+      if (controller.signal.aborted) throw new ImmichError('Immich API request timed out', 504)
+      throw error
     } finally {
       clearTimeout(timer)
     }

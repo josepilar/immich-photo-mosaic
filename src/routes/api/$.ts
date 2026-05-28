@@ -7,6 +7,7 @@ export const Route = createFileRoute('/api/$')({
       GET: ({ request, params }) => handleApi(request, params._splat ?? ''),
       POST: ({ request, params }) => handleApi(request, params._splat ?? ''),
       PUT: ({ request, params }) => handleApi(request, params._splat ?? ''),
+      DELETE: ({ request, params }) => handleApi(request, params._splat ?? ''),
     },
   },
 })
