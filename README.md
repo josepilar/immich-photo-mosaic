@@ -4,13 +4,42 @@ Generate still-image photo mosaics from an Immich library. Select one or more Im
 
 Inspired by [immich-automated-selfie-timelapse](https://github.com/ArnaudCrl/immich-automated-selfie-timelapse), especially the idea of using Immich as a source for small, focused image-generation tools.
 
-## Requirements
+<p align="center">
+  <img src="resources/top.png" alt="Main interface">
+</p>
 
-- Node.js 22 or newer for local development.
-- Docker and Docker Compose for the recommended deployment.
-- An Immich API key with these scopes: `album.read`, `asset.download`, `asset.read`, `asset.view`, `person.read`, `server.about`.
+<p align="center">
+  <img src="resources/faces.png" alt="Selecting source people and photos">
+</p>
 
-## Configuration
+<p align="center">
+  <img src="resources/job_proccess.png" alt="Mosaic job progress">
+</p>
+
+<p align="center">
+  <img src="resources/result.gif" alt="Generated photo mosaic example" width="65%">
+</p>
+
+## Use The App
+
+1. Check the connection panel. It should show the Immich URL, API key status, Immich version, and writable config/output volumes.
+2. Choose the main photo. Use an Immich asset or upload a local JPEG, PNG, or WebP image. This photo controls the final mosaic aspect ratio.
+3. Choose source photos. Select people to use as tile sources, or leave everyone unselected to use any eligible photo. Optional album and date filters narrow the candidate set.
+4. Adjust mosaic settings. Configure output size, format, tile size, fit mode, matching strength, repeat limits, source filters, random seed, and debug intermediates.
+5. Select `Save Settings` if you want to persist filters and mosaic settings to `config.toml`.
+6. Select `Generate Mosaic` and monitor progress. You can cancel a running job.
+7. Use the preview viewer to zoom, pan, fullscreen, and download the final mosaic.
+8. Use output history to download selected outputs as a tar archive or delete generated outputs.
+
+## Settings
+
+The UI persists mosaic settings to TOML. Important controls include output size or megapixel target, automatic or manual grid density, tile aspect ratio, tile fit mode, contain padding mode, main-image opacity, color matching strength, repeat/diversity limits, candidate pool size, brightness and blur filters, archive/hidden/favorite filters, random seed, output format, quality, and debug intermediates.
+
+The default tile fit is `cover`. Tile sources use Immich previews for fast, compatible processing, while the main photo is loaded from the original when possible. Defaults target a balanced still image: 3200px wide, 64px tiles, and an 800-photo candidate pool before filters.
+
+## Deploy
+
+Docker and Docker Compose are recommended. You also need an Immich API key with these scopes: `album.read`, `asset.download`, `asset.read`, `asset.view`, `person.read`, `server.about`.
 
 The app reads Immich connection details from environment variables:
 
@@ -24,7 +53,7 @@ The app reads Immich connection details from environment variables:
 
 `config.toml` stores non-secret settings such as filters and mosaic parameters. The API key is read only from `IMMICH_API_KEY` and is never written to disk.
 
-## Run With Docker Compose
+## Docker Compose
 
 Create a `.env` file next to `docker-compose.yml`:
 
@@ -74,7 +103,39 @@ docker compose restart
 docker compose down
 ```
 
-## Run Locally For Development
+## Docker Run
+
+Run it without Compose:
+
+```bash
+docker run --rm \
+  -p 5465:5777 \
+  -e IMMICH_BASE_URL=https://immich.example.com \
+  -e IMMICH_API_KEY=your-api-key \
+  -v "$PWD/config:/app/config" \
+  -v "$PWD/output:/app/output" \
+  turbopolar/immich-photo-mosaic:latest
+```
+
+Open `http://localhost:5465`.
+
+## Volumes And Secrets
+
+In Docker, `/app/config/config.toml` stores non-secret settings such as filters and mosaic parameters. Uploaded main images are stored under `/app/config/uploads`.
+
+`/app/output` stores deterministic output folders named from the selected people, filters, main image, and settings. Each folder contains `final.<format>`, `preview.jpg`, `metadata.json`, and optional tile intermediates when enabled.
+
+## Troubleshooting
+
+- If the app says `IMMICH_API_KEY and IMMICH_BASE_URL must be set`, confirm both environment variables are set in your shell, `.env`, Compose service, or container runtime.
+- If the connection panel reports unwritable volumes, make sure `config` and `output` exist and are writable by the container user.
+- If generation is slow, reduce output size, increase tile size, or lower the candidate pool limit.
+- If the result has too many repeated tiles, increase the candidate pool limit, select more source photos, lower output size, or raise tile size.
+- If the UI looks stale after an update, hard refresh the browser or clear any reverse-proxy cache.
+
+## Develop Locally
+
+Node.js 22 or newer is required for local development.
 
 Install dependencies:
 
@@ -91,8 +152,6 @@ IMMICH_BASE_URL=https://immich.example.com IMMICH_API_KEY=your-api-key npm run d
 Open `http://localhost:5000`.
 
 Local development uses `./config` and `./output` unless `CONFIG_DIR` or `OUTPUT_DIR` are set.
-
-## Build And Run Locally
 
 Build the production server and type-check the project:
 
@@ -127,43 +186,6 @@ docker buildx build \
 
 The included GitHub Actions workflow does the same on pushes to `main`, version tags, or manual runs. It expects `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN` repository secrets.
 
-Run it without Compose:
-
-```bash
-docker run --rm \
-  -p 5465:5777 \
-  -e IMMICH_BASE_URL=https://immich.example.com \
-  -e IMMICH_API_KEY=your-api-key \
-  -v "$PWD/config:/app/config" \
-  -v "$PWD/output:/app/output" \
-  immich-photo-mosaic
-```
-
-Open `http://localhost:5465`.
-
-## Use The App
-
-1. Check the connection panel. It should show the Immich URL, API key status, Immich version, and writable config/output volumes.
-2. Choose the main photo. Use an Immich asset or upload a local JPEG, PNG, or WebP image. This photo controls the final mosaic aspect ratio.
-3. Choose source photos. Select people to use as tile sources, or leave everyone unselected to use any eligible photo. Optional album and date filters narrow the candidate set.
-4. Adjust mosaic settings. Configure output size, format, tile size, fit mode, matching strength, repeat limits, source filters, random seed, and debug intermediates.
-5. Select `Save Settings` if you want to persist filters and mosaic settings to `config.toml`.
-6. Select `Generate Mosaic` and monitor progress. You can cancel a running job.
-7. Use the preview viewer to zoom, pan, fullscreen, and download the final mosaic.
-8. Use output history to download selected outputs as a tar archive or delete generated outputs.
-
-## Volumes And Secrets
-
-In Docker, `/app/config/config.toml` stores non-secret settings such as filters and mosaic parameters. Uploaded main images are stored under `/app/config/uploads`.
-
-`/app/output` stores deterministic output folders named from the selected people, filters, main image, and settings. Each folder contains `final.<format>`, `preview.jpg`, `metadata.json`, and optional tile intermediates when enabled.
-
-## Settings
-
-The UI persists mosaic settings to TOML. Important controls include output size or megapixel target, automatic or manual grid density, tile aspect ratio, tile fit mode, contain padding mode, main-image opacity, color matching strength, repeat/diversity limits, candidate pool size, brightness and blur filters, archive/hidden/favorite filters, random seed, output format, quality, and debug intermediates.
-
-The default tile fit is `cover`. Tile sources use Immich previews for fast, compatible processing, while the main photo is loaded from the original when possible. Defaults target a balanced still image: 3200px wide, 64px tiles, and an 800-photo candidate pool before filters.
-
 ## Checks
 
 ```bash
@@ -172,13 +194,6 @@ npm run typecheck
 npm run lint
 npm run check
 ```
-
-## Troubleshooting
-
-- If the app says `IMMICH_API_KEY and IMMICH_BASE_URL must be set`, confirm both environment variables are set in your shell, `.env`, Compose service, or container runtime.
-- If the connection panel reports unwritable volumes, make sure `config` and `output` exist and are writable by the container user.
-- If generation is slow, reduce output size, increase tile size, or lower the candidate pool limit.
-- If the result has too many repeated tiles, increase the candidate pool limit, select more source photos, lower output size, or raise tile size.
 
 ## License
 
