@@ -113,6 +113,17 @@ Build the container image directly:
 docker build -t immich-photo-mosaic .
 ```
 
+Publish a Docker Hub image that works on both typical servers and Apple Silicon machines:
+
+```bash
+docker buildx build \
+  --platform linux/amd64,linux/arm64 \
+  -t turbopolar/immich-photo-mosaic:latest \
+  --push .
+```
+
+The included GitHub Actions workflow does the same on pushes to `main`, version tags, or manual runs. It expects `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN` repository secrets.
+
 Run it without Compose:
 
 ```bash

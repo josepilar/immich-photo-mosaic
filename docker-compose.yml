@@ -1,6 +1,6 @@
 services:
   immich-photo-mosaic:
-    build: .
+    image: turbopolar/immich-photo-mosaic
     container_name: immich-photo-mosaic
     user: "1000:1000"
     ports:
