@@ -1,10 +1,10 @@
 services:
   immich-photo-mosaic:
-    image: turbopolar/immich-photo-mosaic
+    image: turbopolar/immich-photo-mosaic:latest
     container_name: immich-photo-mosaic
     user: "1000:1000"
     ports:
-      - "5465:5000"
+      - "5465:5777"
     environment:
       IMMICH_API_KEY: ${IMMICH_API_KEY}
       IMMICH_BASE_URL: ${IMMICH_BASE_URL}

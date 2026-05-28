@@ -18,7 +18,7 @@ The app reads Immich connection details from environment variables:
 | `IMMICH_API_KEY` | yes | Immich API key with the scopes listed above. |
 | `CONFIG_DIR` | no | Directory for `config.toml` and temporary uploads. Defaults to `./config` locally and `/app/config` in Docker. |
 | `OUTPUT_DIR` | no | Directory for generated mosaics. Defaults to `./output` locally and `/app/output` in Docker. |
-| `PORT` | no | Production server port. Docker defaults to `5000`. |
+| `PORT` | no | Production server port. Docker defaults to `5777`. |
 
 `config.toml` stores non-secret settings such as filters and mosaic parameters. The API key is read only from `IMMICH_API_KEY` and is never written to disk.
 
@@ -41,19 +41,20 @@ chown -R 1000:1000 config output
 Start the app:
 
 ```bash
-docker compose up --build -d
+docker compose pull
+docker compose up -d
 ```
 
-The checked-in Compose file builds the image locally and publishes the app at `http://localhost:5465`:
+The checked-in Compose file pulls the Docker Hub image and publishes the app at `http://localhost:5465`:
 
 ```yaml
 services:
   immich-photo-mosaic:
-    build: .
+    image: turbopolar/immich-photo-mosaic:latest
     container_name: immich-photo-mosaic
     user: "1000:1000"
     ports:
-      - "5465:5000"
+      - "5465:5777"
     environment:
       IMMICH_API_KEY: ${IMMICH_API_KEY}
       IMMICH_BASE_URL: ${IMMICH_BASE_URL}
@@ -113,11 +114,11 @@ Build the container image directly:
 docker build -t immich-photo-mosaic .
 ```
 
-Publish a Docker Hub image that works on both typical servers and Apple Silicon machines:
+Publish a Docker Hub image for typical x86_64 servers, including most Unraid installs:
 
 ```bash
 docker buildx build \
-  --platform linux/amd64,linux/arm64 \
+  --platform linux/amd64 \
   -t turbopolar/immich-photo-mosaic:latest \
   --push .
 ```
@@ -128,7 +129,7 @@ Run it without Compose:
 
 ```bash
 docker run --rm \
-  -p 5465:5000 \
+  -p 5465:5777 \
   -e IMMICH_BASE_URL=https://immich.example.com \
   -e IMMICH_API_KEY=your-api-key \
   -v "$PWD/config:/app/config" \
