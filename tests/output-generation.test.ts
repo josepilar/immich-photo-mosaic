@@ -76,7 +76,9 @@ describe('output generation', () => {
         rgba[i + 3] = x < width / 2 ? 255 : 0
       }
     }
-    const main = await sharp(rgba, { raw: { width, height, channels: 4 } }).png().toBuffer()
+    const main = await sharp(rgba, { raw: { width, height, channels: 4 } })
+      .png()
+      .toBuffer()
     const black = await sharp({ create: { width: 16, height: 16, channels: 3, background: '#000000' } })
       .png()
       .toBuffer()
@@ -114,6 +116,52 @@ describe('output generation', () => {
     const rightAverage = right / rightPixels
     expect(Math.abs(leftAverage - rightAverage)).toBeLessThan(3)
     expect(leftAverage).toBeGreaterThan(120)
+  })
+
+  it('softens hard main-image influence seams so they do not look like render boundaries', async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'mosaic-seam-'))
+    const width = 80
+    const height = 40
+    const main = await sharp({ create: { width, height, channels: 3, background: '#ffffff' } })
+      .composite([
+        {
+          input: await sharp({ create: { width: width / 2, height, channels: 3, background: '#000000' } })
+            .png()
+            .toBuffer(),
+          left: width / 2,
+          top: 0,
+        },
+      ])
+      .png()
+      .toBuffer()
+    const black = await sharp({ create: { width: 16, height: 16, channels: 3, background: '#000000' } })
+      .png()
+      .toBuffer()
+    const candidates: Array<TileCandidate> = [{ assetId: 'black', buffer: black, average: await imageAverage(black) }]
+    const config = {
+      ...defaultConfig.mosaic,
+      outputWidth: width,
+      outputHeight: height,
+      tileSize: 20,
+      repeatLimit: 99,
+      outputFormat: 'png' as const,
+      colorMatchingStrength: 0,
+      mainImageOpacity: 0.5,
+    }
+    const result = await renderMosaic({ mainBuffer: main, candidates, config, outputFolder: dir })
+    const raw = await sharp(result.finalPath).removeAlpha().raw().toBuffer()
+    const columnBrightness = (x: number) => {
+      let total = 0
+      for (let y = 0; y < height; y += 1) {
+        const i = (y * width + x) * 3
+        total += (raw[i] + raw[i + 1] + raw[i + 2]) / 3
+      }
+      return total / height
+    }
+    const seamJump = Math.abs(columnBrightness(width / 2 - 1) - columnBrightness(width / 2))
+    const overallContrast = Math.abs(columnBrightness(4) - columnBrightness(width - 5))
+    expect(seamJump).toBeLessThan(35)
+    expect(overallContrast).toBeGreaterThan(80)
   })
 
   it('detects screenshot-like candidates without rejecting photo-like gradients', async () => {

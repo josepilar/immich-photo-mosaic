@@ -146,9 +146,9 @@ In Docker, `/app/config/config.toml` stores non-secret settings such as filters 
 
 ## Settings
 
-The UI persists mosaic settings to TOML. Important controls include output size or megapixel target, automatic or manual grid density, tile aspect ratio, tile fit mode, contain padding mode, main-image opacity, color matching strength, repeat/diversity limits, candidate pool size, Immich preview versus original downloads, brightness and blur filters, archive/hidden/favorite filters, random seed, output format, quality, and debug intermediates.
+The UI persists mosaic settings to TOML. Important controls include output size or megapixel target, automatic or manual grid density, tile aspect ratio, tile fit mode, contain padding mode, main-image opacity, color matching strength, repeat/diversity limits, candidate pool size, brightness and blur filters, archive/hidden/favorite filters, random seed, output format, quality, and debug intermediates.
 
-The default tile fit is `cover` and original Immich downloads are used for sharper tiles. Defaults target a balanced still image: 3200px wide, 64px tiles, and an 800-photo candidate pool before filters.
+The default tile fit is `cover`. Tile sources use Immich previews for fast, compatible processing, while the main photo is loaded from the original when possible. Defaults target a balanced still image: 3200px wide, 64px tiles, and an 800-photo candidate pool before filters.
 
 ## Checks
 
@@ -163,7 +163,7 @@ npm run check
 
 - If the app says `IMMICH_API_KEY and IMMICH_BASE_URL must be set`, confirm both environment variables are set in your shell, `.env`, Compose service, or container runtime.
 - If the connection panel reports unwritable volumes, make sure `config` and `output` exist and are writable by the container user.
-- If generation is slow, enable `Use Immich previews`, reduce output size, increase tile size, or lower the candidate pool limit.
+- If generation is slow, reduce output size, increase tile size, or lower the candidate pool limit.
 - If the result has too many repeated tiles, increase the candidate pool limit, select more source photos, lower output size, or raise tile size.
 
 ## License

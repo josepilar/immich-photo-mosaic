@@ -254,10 +254,11 @@ export async function targetCellColors(
   rows: number,
   outputWidth?: number,
   outputHeight?: number,
+  blurSigma = 0,
 ): Promise<Array<RGB>> {
   const source =
     outputWidth && outputHeight
-      ? await mainImageCanvas(mainBuffer, outputWidth, outputHeight)
+      ? await mainImageCanvas(mainBuffer, outputWidth, outputHeight, blurSigma)
       : await sharp(mainBuffer).rotate().removeAlpha().toColorspace('srgb').png().toBuffer()
   const raw = await sharp(source).resize(columns, rows, { fit: 'fill' }).raw().toBuffer()
   const colors: Array<RGB> = []
@@ -307,12 +308,14 @@ export async function renderMosaic(args: {
   }
 
   args.onLog?.('Computing target cell colors')
+  const guideBlur = mainImageGuideBlur(layout.tileWidth, layout.tileHeight)
   const colors = await targetCellColors(
     args.mainBuffer,
     layout.columns,
     layout.rows,
     layout.outputWidth,
     layout.outputHeight,
+    guideBlur,
   )
   renderCompleted += 1
   progress('Computing target cell colors')
@@ -368,6 +371,7 @@ export async function renderMosaic(args: {
       layout.outputWidth,
       layout.outputHeight,
       args.config.mainImageOpacity,
+      guideBlur,
     )
     mosaicBuffer = await sharp(mosaicBuffer)
       .composite([{ input: overlay }])
@@ -430,8 +434,14 @@ async function colorMatchedTile(buffer: Buffer, target: RGB, average: RGB, stren
     .toBuffer()
 }
 
-async function uniformOpacityOverlay(buffer: Buffer, width: number, height: number, opacity: number) {
-  const rgb = await mainImageCanvas(buffer, width, height)
+async function uniformOpacityOverlay(
+  buffer: Buffer,
+  width: number,
+  height: number,
+  opacity: number,
+  blurSigma: number,
+) {
+  const rgb = await mainImageCanvas(buffer, width, height, blurSigma)
   const alpha = Buffer.alloc(width * height, Math.round(clamp(opacity, 0, 1) * 255))
   return sharp(rgb)
     .joinChannel(alpha, { raw: { width, height, channels: 1 } })
@@ -439,14 +449,18 @@ async function uniformOpacityOverlay(buffer: Buffer, width: number, height: numb
     .toBuffer()
 }
 
-function mainImageCanvas(buffer: Buffer, width: number, height: number) {
-  return sharp(buffer)
+function mainImageCanvas(buffer: Buffer, width: number, height: number, blurSigma = 0) {
+  let image = sharp(buffer)
     .rotate()
     .resize(width, height, { fit: 'cover' })
-    .removeAlpha()
+    .flatten({ background: '#ffffff' })
     .toColorspace('srgb')
-    .png()
-    .toBuffer()
+  if (blurSigma > 0) image = image.blur(blurSigma)
+  return image.png().toBuffer()
+}
+
+function mainImageGuideBlur(tileWidth: number, tileHeight: number) {
+  return clamp(Math.min(tileWidth, tileHeight) / 4, 2, 18)
 }
 
 function rgbToHsl([r, g, b]: RGB) {

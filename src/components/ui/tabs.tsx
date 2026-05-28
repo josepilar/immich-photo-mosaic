@@ -18,9 +18,7 @@ export function TabsTrigger({
     <button
       className={cn(
         'rounded-full px-3 py-1.5 text-sm font-medium transition disabled:opacity-50',
-        active
-          ? 'bg-stone-100 text-zinc-900'
-          : 'text-zinc-400 hover:bg-white/[0.04] hover:text-stone-100',
+        active ? 'bg-stone-100 text-zinc-900' : 'text-zinc-400 hover:bg-white/[0.04] hover:text-stone-100',
         className,
       )}
       {...props}

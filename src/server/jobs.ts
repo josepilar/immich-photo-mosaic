@@ -1,8 +1,9 @@
 import fs from 'node:fs/promises'
+import { createRequire } from 'node:module'
 import path from 'node:path'
-import { appConfigSchema, defaultConfig, type AppConfig, type MosaicConfig } from './config'
-import { ImmichClient, type Asset } from './immich'
-import { outputDir, uploadDir } from './paths'
+import sharp from 'sharp'
+import { type AppConfig, appConfigSchema, defaultConfig, type MosaicConfig } from './config'
+import { type Asset, ImmichClient } from './immich'
 import {
   brightnessAndSharpness,
   imageAverage,
@@ -12,6 +13,15 @@ import {
   shuffleDeterministic,
   type TileCandidate,
 } from './mosaic'
+import { outputDir, uploadDir } from './paths'
+
+type HeicConvert = (options: {
+  buffer: Buffer
+  format: 'JPEG' | 'PNG'
+  quality?: number
+}) => Promise<ArrayBuffer | Uint8Array | Buffer>
+
+const require = createRequire(import.meta.url)
 
 export type MainImageSelection = { type: 'immich'; assetId: string } | { type: 'upload'; uploadId: string }
 
@@ -101,7 +111,7 @@ async function runJob(request: StartJobRequest, signal: AbortSignal) {
   const config = appConfigSchema.parse(request.config ?? defaultConfig)
   const mosaic = config.mosaic
   log(
-    `Configuration parsed: output=${mosaic.outputWidth}x${mosaic.outputHeight}, tileSize=${mosaic.tileSize}, poolLimit=${mosaic.candidatePoolLimit}, usePreviews=${mosaic.usePreviews}`,
+    `Configuration parsed: output=${mosaic.outputWidth}x${mosaic.outputHeight}, tileSize=${mosaic.tileSize}, poolLimit=${mosaic.candidatePoolLimit}, tileSource=previews`,
   )
   log(
     `Filters: people=${personIds.length ? personIds.join(',') : 'any'}, albums=${albumIds.length ? albumIds.join(',') : 'none'}, dateFrom=${request.dateFrom || 'none'}, dateTo=${request.dateTo || 'none'}`,
@@ -148,10 +158,7 @@ async function runJob(request: StartJobRequest, signal: AbortSignal) {
 
   update('main-image', 0, 1, 'Loading main mosaic image')
   log(`Loading main image from ${request.mainImage.type}`)
-  const mainBuffer =
-    request.mainImage.type === 'immich'
-      ? (await client.downloadAsset(request.mainImage.assetId, false)).bytes
-      : await fs.readFile(safeUploadPath(request.mainImage.uploadId))
+  const mainBuffer = await loadMainImage(request.mainImage, client)
   log(`Main image loaded: ${mainBuffer.byteLength} bytes`)
   current.completed = 1
 
@@ -172,35 +179,15 @@ async function runJob(request: StartJobRequest, signal: AbortSignal) {
   update('candidates', 0, pool.length, `Analyzing ${pool.length} candidate images`)
   const candidates: Array<TileCandidate> = []
   let analyzed = 0
-  const candidateConcurrency = mosaic.usePreviews ? 6 : 3
+  const candidateConcurrency = 6
   await mapLimit(pool, candidateConcurrency, async (asset, index) => {
     throwIfAborted(signal)
     try {
-      const { bytes } = await client.downloadAsset(asset.id, mosaic.usePreviews)
-      const metrics = await brightnessAndSharpness(bytes)
-      if (await looksLikeScreenshot(bytes)) {
-        current.stats.candidatesRejected += 1
-        log(`Rejected ${asset.id}: looks like a screenshot or UI capture`)
-      } else if (
-        mosaic.brightnessFilterEnabled &&
-        (metrics.brightness < mosaic.minBrightness || metrics.brightness > mosaic.maxBrightness)
-      ) {
-        current.stats.candidatesRejected += 1
-        log(
-          `Rejected ${asset.id}: brightness ${metrics.brightness.toFixed(3)} outside ${mosaic.minBrightness}-${mosaic.maxBrightness}`,
-        )
-      } else if (mosaic.blurFilterEnabled && metrics.sharpness < mosaic.minSharpness) {
-        current.stats.candidatesRejected += 1
-        log(`Rejected ${asset.id}: sharpness ${metrics.sharpness.toFixed(1)} below ${mosaic.minSharpness}`)
-      } else {
-        const sourcePath = path.join(tempSourceDir, `${String(index).padStart(5, '0')}-${safeFileName(asset.id)}.img`)
-        await fs.writeFile(sourcePath, bytes)
-        candidates.push({ assetId: asset.id, sourcePath, average: await imageAverage(bytes) })
-        current.stats.candidatesAccepted += 1
-      }
+      const { bytes } = await client.downloadAsset(asset.id, true)
+      await acceptCandidate(asset.id, bytes, index, tempSourceDir, mosaic, candidates)
     } catch (error) {
       current.stats.candidatesRejected += 1
-      log(`Rejected ${asset.id}: ${String((error as Error).message ?? error)}`)
+      log(`Rejected ${asset.id}: ${formatError(error)}`)
     }
     analyzed += 1
     current = {
@@ -272,6 +259,88 @@ function filterAssets(assets: Array<Asset>, config: MosaicConfig) {
     if (config.includeFavoritesOnly && !asset.isFavorite) return false
     return true
   })
+}
+
+async function acceptCandidate(
+  assetId: string,
+  bytes: Buffer,
+  index: number,
+  tempSourceDir: string,
+  mosaic: MosaicConfig,
+  candidates: Array<TileCandidate>,
+) {
+  const metrics = await brightnessAndSharpness(bytes)
+  if (await looksLikeScreenshot(bytes)) {
+    current.stats.candidatesRejected += 1
+    log(`Rejected ${assetId}: looks like a screenshot or UI capture`)
+    return
+  }
+  if (
+    mosaic.brightnessFilterEnabled &&
+    (metrics.brightness < mosaic.minBrightness || metrics.brightness > mosaic.maxBrightness)
+  ) {
+    current.stats.candidatesRejected += 1
+    log(
+      `Rejected ${assetId}: brightness ${metrics.brightness.toFixed(3)} outside ${mosaic.minBrightness}-${mosaic.maxBrightness}`,
+    )
+    return
+  }
+  if (mosaic.blurFilterEnabled && metrics.sharpness < mosaic.minSharpness) {
+    current.stats.candidatesRejected += 1
+    log(`Rejected ${assetId}: sharpness ${metrics.sharpness.toFixed(1)} below ${mosaic.minSharpness}`)
+    return
+  }
+  const sourcePath = path.join(tempSourceDir, `${String(index).padStart(5, '0')}-${safeFileName(assetId)}.img`)
+  await fs.writeFile(sourcePath, bytes)
+  candidates.push({ assetId, sourcePath, average: await imageAverage(bytes) })
+  current.stats.candidatesAccepted += 1
+}
+
+async function loadMainImage(mainImage: MainImageSelection, client: ImmichClient) {
+  if (mainImage.type === 'upload') return fs.readFile(safeUploadPath(mainImage.uploadId))
+  const original = (await client.downloadAsset(mainImage.assetId, false)).bytes
+  try {
+    await sharp(original).metadata()
+    return original
+  } catch (error) {
+    if (!isUnsupportedImageDecodeError(error)) throw error
+    log(`Converting HEIC/HEIF main image original because Sharp cannot decode it directly`)
+    try {
+      const converted = await convertHeicToJpeg(original)
+      await sharp(converted).metadata()
+      return converted
+    } catch (conversionError) {
+      log(`HEIC/HEIF main image conversion failed: ${formatError(conversionError)}`)
+    }
+    log(`Using Immich preview for main image because original format is not decodable`)
+    return (await client.downloadAsset(mainImage.assetId, true)).bytes
+  }
+}
+
+async function convertHeicToJpeg(buffer: Buffer) {
+  const heicConvert = require('heic-convert') as HeicConvert
+  const output = await heicConvert({ buffer, format: 'JPEG', quality: 0.94 })
+  if (Buffer.isBuffer(output)) return output
+  if (output instanceof ArrayBuffer) return Buffer.from(output)
+  return Buffer.from(output.buffer as ArrayBuffer, output.byteOffset, output.byteLength)
+}
+
+function isUnsupportedImageDecodeError(error: unknown) {
+  const message = formatError(error).toLowerCase()
+  return (
+    message.includes('heif') ||
+    message.includes('heic') ||
+    message.includes('no decoding plugin') ||
+    message.includes('bad seek') ||
+    message.includes('unsupported image format') ||
+    message.includes('input buffer contains unsupported image format')
+  )
+}
+
+function formatError(error: unknown) {
+  return String((error as Error).message ?? error)
+    .replace(/\s+/g, ' ')
+    .trim()
 }
 
 function update(stage: string, completed: number, total: number, message: string) {

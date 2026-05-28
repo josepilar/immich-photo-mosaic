@@ -21,7 +21,6 @@ export const mosaicConfigSchema = z.object({
   repeatLimit: z.number().int().min(1).max(9999).default(5),
   minRepeatSpacing: z.number().int().min(0).max(10000).default(20),
   candidatePoolLimit: z.number().int().min(10).max(20000).default(800),
-  usePreviews: z.boolean().default(false),
   brightnessFilterEnabled: z.boolean().default(false),
   minBrightness: z.number().min(0).max(1).default(0.08),
   maxBrightness: z.number().min(0).max(1).default(0.94),

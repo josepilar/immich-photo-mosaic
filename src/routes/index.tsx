@@ -87,7 +87,6 @@ const defaultMosaic: AppConfig['mosaic'] = {
   repeatLimit: 5,
   minRepeatSpacing: 20,
   candidatePoolLimit: 800,
-  usePreviews: false,
   brightnessFilterEnabled: false,
   minBrightness: 0.08,
   maxBrightness: 0.94,
@@ -124,6 +123,10 @@ function App() {
   const [assetPage, setAssetPage] = React.useState(0)
   const [hasMoreImages, setHasMoreImages] = React.useState(false)
   const [loadingImages, setLoadingImages] = React.useState(false)
+  const [mainFilterPersonIds, setMainFilterPersonIds] = React.useState<Array<string>>([])
+  const [mainFilterAlbumId, setMainFilterAlbumId] = React.useState('')
+  const [mainFilterDateFrom, setMainFilterDateFrom] = React.useState('')
+  const [mainFilterDateTo, setMainFilterDateTo] = React.useState('')
   const [mainAssetId, setMainAssetId] = React.useState('')
   const [uploadId, setUploadId] = React.useState('')
   const [targetDimensions, setTargetDimensions] = React.useState<ImageDimensions | null>(null)
@@ -132,6 +135,12 @@ function App() {
   const [message, setMessage] = React.useState('')
   const previousJobStatus = React.useRef<Job['status']>('idle')
   const autoLoadedImages = React.useRef(false)
+  const mainImageFilterKey = [
+    mainFilterPersonIds.join(','),
+    mainFilterAlbumId,
+    mainFilterDateFrom,
+    mainFilterDateTo,
+  ].join('|')
 
   React.useEffect(() => {
     void boot()
@@ -152,7 +161,13 @@ function App() {
     if (!status?.connected || mainMode !== 'immich' || assets.length > 0 || autoLoadedImages.current) return
     autoLoadedImages.current = true
     void loadImages(true)
-  }, [status?.connected, mainMode, assets.length])
+  }, [status?.connected, mainMode, assets.length, mainImageFilterKey])
+  React.useEffect(() => {
+    autoLoadedImages.current = false
+    setAssets([])
+    setAssetPage(0)
+    setHasMoreImages(false)
+  }, [mainImageFilterKey])
 
   async function boot() {
     const [cfg, stat, ppl, alb, current, out] = await Promise.all([
@@ -203,7 +218,16 @@ function App() {
     setLoadingImages(true)
     try {
       const page = reset ? 1 : assetPage + 1
-      const data = await api<AssetPage>(`/api/assets/search-page?${qs({ limit: '80', page: String(page) })}`)
+      const data = await api<AssetPage>(
+        `/api/assets/search-page?${qs({
+          limit: '80',
+          page: String(page),
+          person_ids: mainFilterPersonIds.join(','),
+          album_ids: mainFilterAlbumId,
+          date_from: mainFilterDateFrom,
+          date_to: mainFilterDateTo,
+        })}`,
+      )
       const nextAssets = reset ? data.items : dedupeAssets([...assets, ...data.items])
       setAssets(nextAssets)
       setAssetPage(data.page)
@@ -346,7 +370,8 @@ function App() {
                 Turn a library into a photo mosaic.
               </h1>
               <p className="mt-4 max-w-2xl text-base leading-7 text-zinc-400">
-                Choose a target photo, curate source tiles from people, albums, and dates, then tune the render into a high-resolution still image.
+                Choose a target photo, curate source tiles from people, albums, and dates, then tune the render into a
+                high-resolution still image.
               </p>
             </div>
             <ConnectionBadge connected={connected} status={status} onRefresh={boot} />
@@ -372,6 +397,16 @@ function App() {
                 <MainImageSelector
                   mode={mainMode}
                   setMode={setMainMode}
+                  people={people}
+                  albums={albums}
+                  filterPersonIds={mainFilterPersonIds}
+                  setFilterPersonIds={setMainFilterPersonIds}
+                  filterAlbumId={mainFilterAlbumId}
+                  setFilterAlbumId={setMainFilterAlbumId}
+                  filterDateFrom={mainFilterDateFrom}
+                  setFilterDateFrom={setMainFilterDateFrom}
+                  filterDateTo={mainFilterDateTo}
+                  setFilterDateTo={setMainFilterDateTo}
                   assets={assets}
                   loadMoreImages={() => void loadImages(false)}
                   hasMoreImages={hasMoreImages}
@@ -430,12 +465,7 @@ function App() {
           </div>
 
           <aside className="space-y-5 lg:sticky lg:top-6">
-            <ActionPanel
-              job={job}
-              running={running}
-              hasMainImage={hasMainImage}
-              onStart={() => void start()}
-            />
+            <ActionPanel job={job} running={running} hasMainImage={hasMainImage} onStart={() => void start()} />
             <ProgressView
               job={job}
               onCancel={() => api('/api/jobs/cancel', { method: 'POST' }).then(() => refreshJobAndOutputs())}
@@ -575,6 +605,16 @@ function ActionPanel({
 function MainImageSelector(props: {
   mode: 'immich' | 'upload'
   setMode: (v: 'immich' | 'upload') => void
+  people: Array<Person>
+  albums: Array<Album>
+  filterPersonIds: Array<string>
+  setFilterPersonIds: (v: Array<string>) => void
+  filterAlbumId: string
+  setFilterAlbumId: (v: string) => void
+  filterDateFrom: string
+  setFilterDateFrom: (v: string) => void
+  filterDateTo: string
+  setFilterDateTo: (v: string) => void
   assets: Array<Asset>
   loadMoreImages: () => void
   hasMoreImages: boolean
@@ -623,6 +663,65 @@ function MainImageSelector(props: {
         </div>
         {props.mode === 'immich' ? (
           <>
+            <div className="rounded-2xl border border-white/10 bg-zinc-900 p-3">
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <Label>Browse Filters</Label>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => {
+                    props.setFilterPersonIds([])
+                    props.setFilterAlbumId('')
+                    props.setFilterDateFrom('')
+                    props.setFilterDateTo('')
+                  }}
+                  disabled={
+                    props.disabled ||
+                    (!props.filterPersonIds.length &&
+                      !props.filterAlbumId &&
+                      !props.filterDateFrom &&
+                      !props.filterDateTo)
+                  }
+                >
+                  Clear
+                </Button>
+              </div>
+              <div className="grid gap-3 md:grid-cols-4">
+                <PersonMultiSelect
+                  people={props.people}
+                  selectedIds={props.filterPersonIds}
+                  setSelectedIds={props.setFilterPersonIds}
+                  disabled={props.disabled}
+                />
+                <Select
+                  value={props.filterAlbumId}
+                  onChange={(event) => props.setFilterAlbumId(event.target.value)}
+                  disabled={props.disabled}
+                  aria-label="Filter main photos by album"
+                >
+                  <option value="">Any album</option>
+                  {props.albums.map((album) => (
+                    <option key={album.id} value={album.id}>
+                      {album.albumName}
+                    </option>
+                  ))}
+                </Select>
+                <Input
+                  type="date"
+                  value={props.filterDateFrom}
+                  onChange={(event) => props.setFilterDateFrom(event.target.value)}
+                  disabled={props.disabled}
+                  aria-label="Filter main photos from date"
+                />
+                <Input
+                  type="date"
+                  value={props.filterDateTo}
+                  onChange={(event) => props.setFilterDateTo(event.target.value)}
+                  disabled={props.disabled}
+                  aria-label="Filter main photos to date"
+                />
+              </div>
+            </div>
             <div
               onScroll={onScroll}
               className="grid max-h-[28rem] grid-cols-2 gap-3 overflow-auto rounded-xl border border-white/10 bg-zinc-900 p-3 scrollbar-thin sm:grid-cols-3 md:grid-cols-4"
@@ -643,13 +742,18 @@ function MainImageSelector(props: {
                 </button>
               ))}
               {props.loadingImages && (
-                <div className="col-span-4 flex items-center justify-center gap-2 py-4 text-sm text-slate-400">
+                <div className="col-span-full flex items-center justify-center gap-2 py-4 text-sm text-slate-400">
                   <Loader2 className="size-4 animate-spin" />
-                  Loading more images
+                  {props.assets.length ? 'Loading more images' : 'Loading images'}
+                </div>
+              )}
+              {!props.loadingImages && props.assets.length === 0 && (
+                <div className="col-span-full py-6 text-center text-sm text-slate-400">
+                  No images match the current filters.
                 </div>
               )}
               {props.assets.length > 0 && !props.hasMoreImages && (
-                <div className="col-span-4 py-3 text-center text-xs text-slate-500">All matching images loaded</div>
+                <div className="col-span-full py-3 text-center text-xs text-slate-500">All matching images loaded</div>
               )}
             </div>
           </>
@@ -666,6 +770,73 @@ function MainImageSelector(props: {
         )}
       </CardContent>
     </Card>
+  )
+}
+
+function PersonMultiSelect({
+  people,
+  selectedIds,
+  setSelectedIds,
+  disabled,
+}: {
+  people: Array<Person>
+  selectedIds: Array<string>
+  setSelectedIds: (v: Array<string>) => void
+  disabled: boolean
+}) {
+  const [open, setOpen] = React.useState(false)
+  const selected = people.filter((person) => selectedIds.includes(person.id))
+  const label =
+    selected.length === 0
+      ? 'Any person'
+      : selected.length === 1
+        ? selected[0].name || 'Unnamed'
+        : `${selected.length} people`
+
+  function toggle(id: string) {
+    setSelectedIds(selectedIds.includes(id) ? selectedIds.filter((item) => item !== id) : [...selectedIds, id])
+  }
+
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        aria-expanded={open}
+        onClick={() => setOpen((value) => !value)}
+        disabled={disabled}
+        className="flex h-11 w-full items-center justify-between gap-3 rounded-xl border border-white/10 bg-zinc-800 px-3.5 text-left text-sm text-stone-100 outline-none transition hover:border-white/20 disabled:cursor-not-allowed disabled:opacity-50"
+      >
+        <span className="truncate">{label}</span>
+        <span className="text-xs text-zinc-500">People</span>
+      </button>
+      {open && !disabled && (
+        <div className="absolute left-0 top-full z-40 mt-2 max-h-72 w-full min-w-72 overflow-auto rounded-xl border border-white/10 bg-zinc-800 p-2 shadow-lg shadow-black/30 scrollbar-thin">
+          {people.length ? (
+            people.map((person) => {
+              const checked = selectedIds.includes(person.id)
+              return (
+                <button
+                  type="button"
+                  key={person.id}
+                  onClick={() => toggle(person.id)}
+                  className={`flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left text-sm transition ${checked ? 'bg-zinc-700 text-stone-100' : 'text-zinc-300 hover:bg-zinc-700/60 hover:text-stone-100'}`}
+                >
+                  <img
+                    src={`/api/people/${person.id}/thumbnail`}
+                    className="size-8 rounded-full object-cover ring-1 ring-white/15"
+                    alt={person.name ? `${person.name} thumbnail` : 'Person thumbnail'}
+                  />
+                  <span className="min-w-0 flex-1 truncate">{person.name || 'Unnamed'}</span>
+                  <input className="size-4 accent-stone-200" type="checkbox" checked={checked} readOnly />
+                </button>
+              )
+            })
+          ) : (
+            <div className="px-3 py-4 text-sm text-zinc-400">No people found</div>
+          )}
+        </div>
+      )}
+    </div>
   )
 }
 
@@ -981,12 +1152,6 @@ function SettingsTabs(props: {
                   disabled={props.disabled}
                 />
                 <ToggleField
-                  label="Use Immich previews"
-                  checked={m.usePreviews}
-                  set={(v) => props.patch({ usePreviews: v })}
-                  disabled={props.disabled}
-                />
-                <ToggleField
                   label="Include archived"
                   checked={m.includeArchived}
                   set={(v) => props.patch({ includeArchived: v })}
@@ -1112,7 +1277,10 @@ function Preview({ job }: { job: Job | null }) {
           <Button size="sm" onClick={() => setOpen(true)}>
             Open Viewer
           </Button>
-          <a className="text-sm text-stone-200 underline decoration-white/30 underline-offset-4 hover:text-white" href={job.output.finalUrl}>
+          <a
+            className="text-sm text-stone-200 underline decoration-white/30 underline-offset-4 hover:text-white"
+            href={job.output.finalUrl}
+          >
             Download final
           </a>
           <span className="text-xs text-slate-500">
@@ -1280,7 +1448,12 @@ function OutputHistory({ outputs, onChanged }: { outputs: Array<Output>; onChang
               <option value={20}>20 / page</option>
               <option value={50}>50 / page</option>
             </Select>
-            <Button size="sm" variant="outline" onClick={() => setPage((value) => Math.max(1, value - 1))} disabled={currentPage <= 1}>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setPage((value) => Math.max(1, value - 1))}
+              disabled={currentPage <= 1}
+            >
               Prev
             </Button>
             <span>
@@ -1430,15 +1603,6 @@ function ToggleField({
     </label>
   )
 }
-function Stat({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-xl border border-white/10 bg-zinc-900 p-3">
-      <div className="text-xs text-slate-500">{label}</div>
-      <div>{value}</div>
-    </div>
-  )
-}
-
 function InfoTooltip({ label }: { label: string }) {
   const text = settingTooltip(label)
   if (!text) return null
@@ -1476,7 +1640,6 @@ function settingTooltip(label: string) {
     'Minimum repeat spacing': 'Minimum number of cells before the same source photo can appear again.',
     'Candidate pool limit':
       'Maximum number of source photos to download and analyze after filters. Increase for more variety.',
-    'Use Immich previews': 'Uses Immich preview images instead of originals for faster processing and lower bandwidth.',
     'Include archived': 'Allow archived Immich assets as tile candidates.',
     'Include hidden': 'Allow hidden Immich assets as tile candidates if Immich reports that metadata.',
     'Favorites only': 'Use only favorite assets as tile candidates.',

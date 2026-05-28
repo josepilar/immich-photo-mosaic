@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { selectTilesForCells, type RenderCandidate, type RGB } from '../src/server/mosaic'
+import { type RenderCandidate, type RGB, selectTilesForCells } from '../src/server/mosaic'
 
 describe('tile selection', () => {
   it('respects repeat limits and repeat spacing when alternatives exist', () => {
