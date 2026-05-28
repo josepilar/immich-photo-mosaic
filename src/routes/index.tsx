@@ -1,5 +1,5 @@
 import { createFileRoute } from '@tanstack/react-router'
-import { AlertCircle, CheckCircle2, Info, Loader2, Search, XCircle } from 'lucide-react'
+import { AlertCircle, CheckCircle2, Images, Info, Layers3, Loader2, Search, Settings2, XCircle } from 'lucide-react'
 import * as React from 'react'
 import Lightbox from 'yet-another-react-lightbox'
 import Download from 'yet-another-react-lightbox/plugins/download'
@@ -98,7 +98,7 @@ const defaultMosaic: AppConfig['mosaic'] = {
   includeFavoritesOnly: false,
   includeVideos: false,
   randomSeed: 1337,
-  outputFormat: 'png',
+  outputFormat: 'jpeg',
   quality: 90,
   keepIntermediates: false,
 }
@@ -131,6 +131,7 @@ function App() {
   const [outputs, setOutputs] = React.useState<Array<Output>>([])
   const [message, setMessage] = React.useState('')
   const previousJobStatus = React.useRef<Job['status']>('idle')
+  const autoLoadedImages = React.useRef(false)
 
   React.useEffect(() => {
     void boot()
@@ -147,6 +148,11 @@ function App() {
   React.useEffect(() => {
     void refreshCount()
   }, [selectedPeople.join(','), selectedAlbums.join(','), dateFrom, dateTo])
+  React.useEffect(() => {
+    if (!status?.connected || mainMode !== 'immich' || assets.length > 0 || autoLoadedImages.current) return
+    autoLoadedImages.current = true
+    void loadImages(true)
+  }, [status?.connected, mainMode, assets.length])
 
   async function boot() {
     const [cfg, stat, ppl, alb, current, out] = await Promise.all([
@@ -325,130 +331,242 @@ function App() {
   const running = job?.status === 'running' || job?.status === 'cancelling'
   const connected = Boolean(status?.connected)
   const hasMainImage = mainMode === 'immich' ? Boolean(mainAssetId) : Boolean(uploadId)
+  const completedOutputs = outputs.filter((out) => out.complete !== false && out.finalName && out.previewUrl).length
 
   return (
-    <main className="mx-auto max-w-3xl p-4 md:p-8">
-      <header className="mb-6 flex flex-col gap-3 border-b border-slate-800 pb-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight text-slate-50">Immich Photo Mosaic</h1>
-          <p className="mt-1 text-sm text-slate-400">
-            Choose a target photo, choose optional source people, then tune the mosaic.
-          </p>
-        </div>
-        <StatusPill connected={connected} />
-      </header>
-
-      <div className="space-y-4">
-        <ConnectionPanel status={status} onRefresh={boot} />
-        {connected ? (
-          <>
-            <MainImageSelector
-              mode={mainMode}
-              setMode={setMainMode}
-              assets={assets}
-              loadImages={() => void loadImages(true)}
-              loadMoreImages={() => void loadImages(false)}
-              hasMoreImages={hasMoreImages}
-              loadingImages={loadingImages}
-              selectedAsset={mainAssetId}
-              selectAsset={(asset) => void selectMainAsset(asset)}
-              uploadId={uploadId}
-              uploadMain={uploadMain}
-              disabled={running}
-              targetDimensions={targetDimensions}
-            />
-            <SourcePanel
-              people={people}
-              selectedPeople={selectedPeople}
-              setSelectedPeople={setSelectedPeople}
-              albums={albums}
-              selectedAlbums={selectedAlbums}
-              setSelectedAlbums={setSelectedAlbums}
-              dateFrom={dateFrom}
-              setDateFrom={setDateFrom}
-              dateTo={dateTo}
-              setDateTo={setDateTo}
-              assetCount={assetCount}
-              disabled={running}
-            />
-            <SettingsTabs
-              config={config}
-              patch={patchConfig}
-              setLockedOutputWidth={setLockedOutputWidth}
-              targetDimensions={targetDimensions}
-              restoreDefaults={() =>
-                setConfig((current) => ({
-                  ...current,
-                  mosaic: targetDimensions
-                    ? {
-                        ...defaultMosaic,
-                        outputHeight: Math.round(
-                          defaultMosaic.outputWidth / (targetDimensions.width / targetDimensions.height),
-                        ),
-                      }
-                    : defaultMosaic,
-                }))
-              }
-              onSave={() => void saveSettings()}
-              disabled={running}
-            />
-            <div className="flex flex-wrap gap-2 rounded-xl border border-slate-800 bg-slate-950/70 p-4">
-              <Button onClick={() => void start()} disabled={running || !hasMainImage}>
-                {running ? 'Running' : 'Generate Mosaic'}
-              </Button>
-              <Button variant="outline" onClick={() => void start()} disabled={running || !job?.output}>
-                Re-run Same Setup
-              </Button>
-              {message && <span className="self-center text-sm text-slate-400">{message}</span>}
+    <main className="min-h-screen px-4 py-6 sm:px-6 lg:px-8">
+      <div className="mx-auto max-w-7xl">
+        <header className="mb-6 rounded-2xl border border-white/10 bg-zinc-800 p-6 lg:p-8">
+          <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
+            <div className="max-w-3xl">
+              <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-white/10 bg-zinc-900 px-3 py-1 text-xs font-medium uppercase tracking-[0.22em] text-zinc-300">
+                Immich photo mosaic
+              </div>
+              <h1 className="text-4xl font-semibold tracking-tight text-stone-100 sm:text-5xl lg:text-6xl">
+                Turn a library into a photo mosaic.
+              </h1>
+              <p className="mt-4 max-w-2xl text-base leading-7 text-zinc-400">
+                Choose a target photo, curate source tiles from people, albums, and dates, then tune the render into a high-resolution still image.
+              </p>
             </div>
+            <ConnectionBadge connected={connected} status={status} onRefresh={boot} />
+          </div>
+          <div className="mt-8 grid gap-3 border-t border-white/10 pt-4 sm:grid-cols-2 lg:grid-cols-4">
+            <HeroStat label="People" value={String(people.length)} />
+            <HeroStat label="Albums" value={String(albums.length)} />
+            <HeroStat label="Candidates" value={assetCount == null ? '...' : String(assetCount)} />
+            <HeroStat label="Outputs" value={String(completedOutputs)} />
+          </div>
+        </header>
+
+        {message && (
+          <div className="mb-5 rounded-xl border border-white/10 bg-zinc-800 px-4 py-3 text-sm text-zinc-300">
+            {message}
+          </div>
+        )}
+
+        <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_360px] lg:items-start">
+          <div className="space-y-5">
+            {connected ? (
+              <>
+                <MainImageSelector
+                  mode={mainMode}
+                  setMode={setMainMode}
+                  assets={assets}
+                  loadMoreImages={() => void loadImages(false)}
+                  hasMoreImages={hasMoreImages}
+                  loadingImages={loadingImages}
+                  selectedAsset={mainAssetId}
+                  selectAsset={(asset) => void selectMainAsset(asset)}
+                  uploadId={uploadId}
+                  uploadMain={uploadMain}
+                  disabled={running}
+                  targetDimensions={targetDimensions}
+                />
+                <SourcePanel
+                  people={people}
+                  selectedPeople={selectedPeople}
+                  setSelectedPeople={setSelectedPeople}
+                  albums={albums}
+                  selectedAlbums={selectedAlbums}
+                  setSelectedAlbums={setSelectedAlbums}
+                  dateFrom={dateFrom}
+                  setDateFrom={setDateFrom}
+                  dateTo={dateTo}
+                  setDateTo={setDateTo}
+                  assetCount={assetCount}
+                  disabled={running}
+                />
+                <SettingsTabs
+                  config={config}
+                  patch={patchConfig}
+                  setLockedOutputWidth={setLockedOutputWidth}
+                  targetDimensions={targetDimensions}
+                  restoreDefaults={() =>
+                    setConfig((current) => ({
+                      ...current,
+                      mosaic: targetDimensions
+                        ? {
+                            ...defaultMosaic,
+                            outputHeight: Math.round(
+                              defaultMosaic.outputWidth / (targetDimensions.width / targetDimensions.height),
+                            ),
+                          }
+                        : defaultMosaic,
+                    }))
+                  }
+                  onSave={() => void saveSettings()}
+                  disabled={running}
+                />
+                <Preview job={job} />
+              </>
+            ) : (
+              <Card className="border-yellow-700/40 bg-yellow-950/20">
+                <CardContent className="p-8 text-center text-stone-200">
+                  Connect to your Immich server to get started. Set `IMMICH_API_KEY` and `IMMICH_BASE_URL` in Docker.
+                </CardContent>
+              </Card>
+            )}
+          </div>
+
+          <aside className="space-y-5 lg:sticky lg:top-6">
+            <ActionPanel
+              job={job}
+              running={running}
+              hasMainImage={hasMainImage}
+              onStart={() => void start()}
+            />
             <ProgressView
               job={job}
               onCancel={() => api('/api/jobs/cancel', { method: 'POST' }).then(() => refreshJobAndOutputs())}
             />
-            <Preview job={job} />
+          </aside>
+        </div>
+
+        {connected && (
+          <div className="mt-5">
             <OutputHistory outputs={outputs} onChanged={() => void fetchOutputs().then(setOutputs)} />
-          </>
-        ) : (
-          <Card>
-            <CardContent className="p-8 text-center text-slate-300">
-              Connect to your Immich server to get started. Set `IMMICH_API_KEY` and `IMMICH_BASE_URL` in Docker.
-            </CardContent>
-          </Card>
+          </div>
         )}
       </div>
     </main>
   )
 }
 
-function StatusPill({ connected }: { connected: boolean }) {
+function ConnectionBadge({
+  connected,
+  status,
+  onRefresh,
+}: {
+  connected: boolean
+  status: Status | null
+  onRefresh: () => void
+}) {
+  const [open, setOpen] = React.useState(false)
   return (
-    <span
-      className={`inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-medium ${connected ? 'bg-emerald-950 text-emerald-300' : 'bg-red-950 text-red-300'}`}
-    >
-      {connected ? <CheckCircle2 className="size-3" /> : <XCircle className="size-3" />}
-      {connected ? 'Connected' : 'Not connected'}
-    </span>
+    <div className="group relative w-fit">
+      <button
+        type="button"
+        aria-expanded={open}
+        onClick={() => setOpen((value) => !value)}
+        className={`inline-flex w-fit cursor-pointer items-center gap-2 rounded-full border px-4 py-2 text-sm font-medium ${connected ? 'border-green-700/50 bg-green-950/30 text-green-200' : 'border-red-700/50 bg-red-950/30 text-red-200'}`}
+      >
+        {connected ? <CheckCircle2 className="size-4" /> : <XCircle className="size-4" />}
+        {connected ? 'Connected' : 'Not connected'}
+      </button>
+      <div
+        className={`${open ? 'block' : 'hidden'} absolute left-0 top-full z-30 mt-3 w-[calc(100vw-2rem)] max-w-sm rounded-2xl border border-white/10 bg-zinc-800 p-4 text-left shadow-lg shadow-black/30 group-hover:block group-focus-within:block sm:left-auto sm:right-0`}
+      >
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <div>
+            <div className="text-sm font-semibold text-stone-100">Connection</div>
+            <div className="text-xs text-zinc-400">Immich and volume status</div>
+          </div>
+          <Button size="sm" variant="ghost" onClick={onRefresh}>
+            Refresh
+          </Button>
+        </div>
+        <div className="space-y-3 text-sm text-zinc-300">
+          <ConnectionRow label="Immich" value={status?.env?.baseUrl ?? 'not configured'} />
+          <ConnectionRow label="API key" value={status?.env?.hasApiKey ? 'provided by environment' : 'missing'} />
+          <ConnectionRow label="Version" value={status?.version || 'unknown'} />
+          <div className="grid grid-cols-2 gap-2 pt-1">
+            <VolumePill label="Config" writable={Boolean(status?.writable?.config)} />
+            <VolumePill label="Output" writable={Boolean(status?.writable?.output)} />
+          </div>
+          {status?.error && (
+            <p className="rounded-xl border border-red-700/50 bg-red-950/30 p-3 text-red-200">{status.error}</p>
+          )}
+        </div>
+      </div>
+    </div>
   )
 }
 
-function ConnectionPanel({ status, onRefresh }: { status: Status | null; onRefresh: () => void }) {
+function HeroStat({ label, value }: { label: string; value: string }) {
   return (
-    <Card>
+    <div className="rounded-xl border border-white/10 bg-zinc-900 p-4">
+      <div className="text-xs font-medium uppercase tracking-[0.18em] text-zinc-500">{label}</div>
+      <div className="mt-2 text-2xl font-semibold tracking-tight text-stone-100">{value}</div>
+    </div>
+  )
+}
+
+function ConnectionRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-xl border border-white/10 bg-zinc-900 p-3">
+      <div className="text-xs uppercase tracking-[0.16em] text-zinc-500">{label}</div>
+      <div className="mt-1 truncate text-stone-100">{value}</div>
+    </div>
+  )
+}
+
+function VolumePill({ label, writable }: { label: string; writable: boolean }) {
+  return (
+    <div
+      className={`rounded-xl border p-3 text-xs ${writable ? 'border-green-700/50 bg-green-950/30 text-green-200' : 'border-yellow-700/50 bg-yellow-950/30 text-yellow-200'}`}
+    >
+      <div className="font-medium">{label}</div>
+      <div className="mt-1 opacity-80">{writable ? 'Writable' : 'Check perms'}</div>
+    </div>
+  )
+}
+
+function ActionPanel({
+  job,
+  running,
+  hasMainImage,
+  onStart,
+}: {
+  job: Job | null
+  running: boolean
+  hasMainImage: boolean
+  onStart: () => void
+}) {
+  return (
+    <Card className="border-stone-300/20 bg-zinc-800">
       <CardHeader>
-        <CardTitle>Connection</CardTitle>
+        <CardTitle>Render</CardTitle>
       </CardHeader>
-      <CardContent className="space-y-2 text-sm">
-        <div>Immich: {status?.env?.baseUrl ?? 'not configured'}</div>
-        <div>API key: {status?.env?.hasApiKey ? 'provided by environment' : 'missing'}</div>
-        <div>Version: {status?.version || 'unknown'}</div>
-        <div>
-          Volumes: config {status?.writable?.config ? 'writable' : 'not writable'}, output{' '}
-          {status?.writable?.output ? 'writable' : 'not writable'}
+      <CardContent className="space-y-4">
+        <div className="grid gap-2">
+          <Button className="w-full" onClick={onStart} disabled={running || !hasMainImage}>
+            {running ? 'Running' : 'Generate Mosaic'}
+          </Button>
+          <Button className="w-full" variant="outline" onClick={onStart} disabled={running || !job?.output}>
+            Re-run Same Setup
+          </Button>
         </div>
-        {status?.error && <p className="text-red-300">{status.error}</p>}
-        <Button size="sm" variant="secondary" onClick={onRefresh}>
-          Refresh
-        </Button>
+        <div className="rounded-xl border border-white/10 bg-zinc-900 p-3 text-sm text-zinc-300">
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-zinc-500">Status</span>
+            <span className="font-medium capitalize text-stone-100">{job?.status ?? 'idle'}</span>
+          </div>
+          <div className="mt-2 flex items-center justify-between gap-3">
+            <span className="text-zinc-500">Stage</span>
+            <span className="truncate font-medium text-stone-100">{job?.stage ?? 'idle'}</span>
+          </div>
+        </div>
       </CardContent>
     </Card>
   )
@@ -458,7 +576,6 @@ function MainImageSelector(props: {
   mode: 'immich' | 'upload'
   setMode: (v: 'immich' | 'upload') => void
   assets: Array<Asset>
-  loadImages: () => void
   loadMoreImages: () => void
   hasMoreImages: boolean
   loadingImages: boolean
@@ -477,7 +594,9 @@ function MainImageSelector(props: {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>1. Main Photo</CardTitle>
+        <CardTitle className="flex items-center gap-2">
+          <Images className="size-4 text-zinc-300" /> 1. Main Photo
+        </CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
         <p className="text-sm text-slate-400">This photo determines the final mosaic aspect ratio.</p>
@@ -504,28 +623,20 @@ function MainImageSelector(props: {
         </div>
         {props.mode === 'immich' ? (
           <>
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={props.loadImages}
-              disabled={props.disabled || props.loadingImages}
-            >
-              {props.loadingImages ? 'Loading...' : 'Load Images From Immich'}
-            </Button>
             <div
               onScroll={onScroll}
-              className="grid max-h-96 grid-cols-4 gap-2 overflow-auto rounded-lg border border-slate-800 p-2 scrollbar-thin"
+              className="grid max-h-[28rem] grid-cols-2 gap-3 overflow-auto rounded-xl border border-white/10 bg-zinc-900 p-3 scrollbar-thin sm:grid-cols-3 md:grid-cols-4"
             >
               {props.assets.map((asset) => (
                 <button
                   type="button"
                   key={asset.id}
                   onClick={() => props.selectAsset(asset)}
-                  className={`rounded-md border p-1 ${props.selectedAsset === asset.id ? 'border-cyan-400' : 'border-slate-800'}`}
+                  className={`overflow-hidden rounded-xl border bg-zinc-800 p-1.5 text-left transition ${props.selectedAsset === asset.id ? 'border-stone-200 bg-zinc-700' : 'border-white/10 hover:border-white/30'}`}
                 >
                   <img
                     src={`/api/assets/${asset.id}/thumbnail`}
-                    className="aspect-square w-full rounded object-cover"
+                    className="aspect-square w-full rounded-xl object-cover"
                     alt={asset.originalFileName || 'Immich asset thumbnail'}
                   />
                   <div className="truncate text-[10px] text-slate-400">{asset.originalFileName || asset.id}</div>
@@ -550,7 +661,7 @@ function MainImageSelector(props: {
               onChange={(e) => void props.uploadMain(e.currentTarget.files?.[0] ?? null)}
               disabled={props.disabled}
             />
-            {props.uploadId && <p className="text-sm text-emerald-300">Upload ready: {props.uploadId}</p>}
+            {props.uploadId && <p className="text-sm text-green-300">Upload ready: {props.uploadId}</p>}
           </>
         )}
       </CardContent>
@@ -579,7 +690,9 @@ function SourcePanel(props: {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>2. Mosaic Source Photos</CardTitle>
+        <CardTitle className="flex items-center gap-2">
+          <Layers3 className="size-4 text-zinc-300" /> 2. Mosaic Source Photos
+        </CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
         <p className="text-sm text-slate-400">
@@ -594,7 +707,7 @@ function SourcePanel(props: {
             onChange={(e) => setQuery(e.target.value)}
           />
         </div>
-        <div className="grid max-h-[300px] grid-cols-4 gap-2 overflow-auto scrollbar-thin sm:grid-cols-5 md:grid-cols-6 lg:grid-cols-8">
+        <div className="grid max-h-[320px] grid-cols-3 gap-3 overflow-auto rounded-xl border border-white/10 bg-zinc-900 p-3 scrollbar-thin sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8">
           {filtered.map((person) => (
             <button
               type="button"
@@ -607,11 +720,11 @@ function SourcePanel(props: {
                     : [...props.selectedPeople, person.id],
                 )
               }
-              className={`rounded-lg border p-1.5 text-center transition ${props.selectedPeople.includes(person.id) ? 'border-cyan-400 bg-cyan-950/40' : 'border-slate-800 bg-slate-900/60 hover:bg-slate-800'}`}
+              className={`rounded-xl border p-2 text-center transition ${props.selectedPeople.includes(person.id) ? 'border-stone-200 bg-zinc-700' : 'border-white/10 bg-zinc-800 hover:border-white/30'}`}
             >
               <img
                 src={`/api/people/${person.id}/thumbnail`}
-                className="mx-auto mb-1.5 size-14 rounded-full object-cover ring-1 ring-slate-700"
+                className="mx-auto mb-1.5 size-14 rounded-full object-cover ring-1 ring-white/15"
                 alt={person.name ? `${person.name} thumbnail` : 'Person thumbnail'}
               />
               <div className="truncate text-[11px]">{person.name || 'Unnamed'}</div>
@@ -636,9 +749,9 @@ function SourcePanel(props: {
             />
           </Field>
         </div>
-        <div className="max-h-40 space-y-1 overflow-auto rounded-lg border border-slate-800 p-2 scrollbar-thin">
+        <div className="max-h-44 space-y-1 overflow-auto rounded-xl border border-white/10 bg-zinc-900 p-2 scrollbar-thin">
           {props.albums.map((album) => (
-            <label key={album.id} className="flex items-center gap-2 rounded-md px-2 py-1 text-sm hover:bg-slate-900">
+            <label key={album.id} className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm hover:bg-zinc-800">
               <input
                 type="checkbox"
                 disabled={props.disabled}
@@ -676,7 +789,9 @@ function SettingsTabs(props: {
   return (
     <Card>
       <CardHeader className="flex flex-row items-center justify-between gap-3">
-        <CardTitle>3. Mosaic Settings</CardTitle>
+        <CardTitle className="flex items-center gap-2">
+          <Settings2 className="size-4 text-zinc-300" /> 3. Mosaic Settings
+        </CardTitle>
         <div className="flex flex-wrap gap-2">
           <Button size="sm" variant="secondary" onClick={props.onSave} disabled={props.disabled}>
             Save Settings
@@ -686,9 +801,9 @@ function SettingsTabs(props: {
           </Button>
         </div>
       </CardHeader>
-      <CardContent>
-        <Tabs>
-          <TabsList className="flex flex-wrap">
+      <CardContent className="p-6">
+        <Tabs className="space-y-6">
+          <TabsList className="flex flex-wrap gap-1">
             <TabsTrigger active={tab === 'output'} onClick={() => setTab('output')}>
               Output
             </TabsTrigger>
@@ -708,7 +823,7 @@ function SettingsTabs(props: {
           {tab === 'output' && (
             <TabsContent>
               <p className="text-sm text-slate-400">Output height is locked to the selected main photo aspect ratio.</p>
-              <div className="grid gap-3 md:grid-cols-3">
+              <div className="grid gap-5 md:grid-cols-3">
                 <NumberField
                   label="Output width"
                   value={m.outputWidth}
@@ -728,7 +843,7 @@ function SettingsTabs(props: {
                   disabled={props.disabled}
                 />
               </div>
-              <div className="grid gap-3 md:grid-cols-2">
+              <div className="grid gap-5 md:grid-cols-2">
                 <Field label="Format">
                   <Select
                     disabled={props.disabled}
@@ -739,8 +854,8 @@ function SettingsTabs(props: {
                       })
                     }
                   >
+                    <option value="jpeg">JPG</option>
                     <option value="png">PNG</option>
-                    <option value="jpeg">JPEG</option>
                     <option value="webp">WebP</option>
                   </Select>
                 </Field>
@@ -758,7 +873,7 @@ function SettingsTabs(props: {
           )}
           {tab === 'tiles' && (
             <TabsContent>
-              <div className="grid gap-3 md:grid-cols-2">
+              <div className="grid gap-5 md:grid-cols-2">
                 <RangeField
                   label="Tile size"
                   min={16}
@@ -813,7 +928,7 @@ function SettingsTabs(props: {
           )}
           {tab === 'matching' && (
             <TabsContent>
-              <div className="grid gap-3 md:grid-cols-2">
+              <div className="grid gap-5 md:grid-cols-2">
                 <RangeField
                   label="Main photo influence"
                   min={0}
@@ -855,7 +970,7 @@ function SettingsTabs(props: {
           )}
           {tab === 'sources' && (
             <TabsContent>
-              <div className="grid gap-3 md:grid-cols-2">
+              <div className="grid gap-5 md:grid-cols-2">
                 <RangeField
                   label="Candidate pool limit"
                   min={50}
@@ -894,7 +1009,7 @@ function SettingsTabs(props: {
           )}
           {tab === 'advanced' && (
             <TabsContent>
-              <div className="grid gap-3 md:grid-cols-2">
+              <div className="grid gap-5 md:grid-cols-2">
                 <NumberField
                   label="Random seed"
                   value={m.randomSeed}
@@ -937,40 +1052,47 @@ function ProgressView({ job, onCancel }: { job: Job | null; onCancel: () => void
           {job.status === 'running' && <Loader2 className="size-4 animate-spin" />} Job Progress
         </CardTitle>
       </CardHeader>
-      <CardContent className="space-y-3">
-        <div className="h-2 overflow-hidden rounded bg-slate-800">
+      <CardContent className="space-y-4">
+        <div className="h-2 overflow-hidden rounded-full bg-white/10">
           <div
-            className="h-full bg-cyan-400"
+            className="h-full rounded-full bg-stone-100"
             style={{
               width: `${job.total ? (job.completed / job.total) * 100 : 0}%`,
             }}
           />
         </div>
-        <div className="grid gap-2 text-sm md:grid-cols-4">
-          <Stat label="Stage" value={job.stage} />
-          <Stat label="Assets" value={`${job.stats.assetsDeduped}/${job.stats.assetsFound}`} />
-          <Stat
-            label="Candidates"
-            value={`${job.stats.candidatesAccepted} ok, ${job.stats.candidatesRejected} rejected`}
-          />
-          <Stat label="Elapsed" value={`${Math.round(job.stats.elapsedMs / 1000)}s`} />
+        <div className="flex flex-wrap gap-2 text-xs">
+          <ProgressBadge label="Stage" value={job.stage} />
+          <ProgressBadge label="Assets" value={`${job.stats.assetsDeduped}/${job.stats.assetsFound}`} />
+          <ProgressBadge label="OK" value={String(job.stats.candidatesAccepted)} />
+          <ProgressBadge label="Rejected" value={String(job.stats.candidatesRejected)} />
+          <ProgressBadge label="Elapsed" value={`${Math.round(job.stats.elapsedMs / 1000)}s`} />
         </div>
         {job.error && (
-          <p className="flex gap-2 text-red-300">
+          <p className="flex gap-2 rounded-xl border border-red-700/50 bg-red-950/30 p-3 text-red-200">
             <AlertCircle className="size-4" />
             {job.error}
           </p>
         )}
-        <pre className="max-h-40 overflow-auto rounded bg-black/40 p-3 text-xs text-slate-300">
+        <pre className="max-h-36 overflow-auto rounded-2xl border border-white/10 bg-zinc-900 p-3 text-xs leading-relaxed text-slate-300">
           {job.logs.join('\n')}
         </pre>
         {job.status === 'running' || job.status === 'cancelling' ? (
-          <Button variant="destructive" onClick={onCancel}>
+          <Button className="w-full" variant="destructive" onClick={onCancel}>
             Cancel
           </Button>
         ) : null}
       </CardContent>
     </Card>
+  )
+}
+
+function ProgressBadge({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="min-w-0 rounded-full border border-white/10 bg-zinc-900 px-3 py-1.5">
+      <span className="text-zinc-500">{label}</span>
+      <span className="ml-2 font-medium text-stone-100">{value}</span>
+    </div>
   )
 }
 
@@ -990,7 +1112,7 @@ function Preview({ job }: { job: Job | null }) {
           <Button size="sm" onClick={() => setOpen(true)}>
             Open Viewer
           </Button>
-          <a className="text-sm text-cyan-300" href={job.output.finalUrl}>
+          <a className="text-sm text-stone-200 underline decoration-white/30 underline-offset-4 hover:text-white" href={job.output.finalUrl}>
             Download final
           </a>
           <span className="text-xs text-slate-500">
@@ -1000,7 +1122,7 @@ function Preview({ job }: { job: Job | null }) {
         <button
           type="button"
           onClick={() => setOpen(true)}
-          className="block overflow-hidden rounded-lg border border-slate-800 bg-black text-left transition hover:border-cyan-500"
+          className="block overflow-hidden rounded-2xl border border-white/10 bg-zinc-900 text-left transition hover:border-white/30"
         >
           <img src={previewSrc} className="max-h-[70vh] w-full object-contain" alt="Mosaic preview" />
         </button>
@@ -1030,13 +1152,32 @@ function OutputHistory({ outputs, onChanged }: { outputs: Array<Output>; onChang
   const completeOutputs = outputs.filter((out) => out.complete !== false && out.finalName && out.previewUrl)
   const [selected, setSelected] = React.useState<Array<string>>([])
   const [busy, setBusy] = React.useState(false)
+  const [page, setPage] = React.useState(1)
+  const [pageSize, setPageSize] = React.useState(5)
   const selectedSet = new Set(selected)
-  const allSelected = completeOutputs.length > 0 && selected.length === completeOutputs.length
+  const totalPages = Math.max(1, Math.ceil(completeOutputs.length / pageSize))
+  const currentPage = Math.min(page, totalPages)
+  const pageStart = (currentPage - 1) * pageSize
+  const pageOutputs = completeOutputs.slice(pageStart, pageStart + pageSize)
+  const pageEnd = Math.min(pageStart + pageOutputs.length, completeOutputs.length)
+  const allPageSelected = pageOutputs.length > 0 && pageOutputs.every((out) => selectedSet.has(out.folder))
+
+  React.useEffect(() => {
+    if (page > totalPages) setPage(totalPages)
+  }, [page, totalPages])
 
   function toggle(folder: string) {
     setSelected((current) =>
       current.includes(folder) ? current.filter((item) => item !== folder) : [...current, folder],
     )
+  }
+
+  function togglePageSelection() {
+    const pageFolders = pageOutputs.map((out) => out.folder)
+    setSelected((current) => {
+      if (allPageSelected) return current.filter((folder) => !pageFolders.includes(folder))
+      return [...new Set([...current, ...pageFolders])]
+    })
   }
 
   async function downloadSelected() {
@@ -1095,13 +1236,14 @@ function OutputHistory({ outputs, onChanged }: { outputs: Array<Output>; onChang
           <label className="flex items-center gap-2 text-sm text-slate-300">
             <input
               type="checkbox"
-              checked={allSelected}
-              onChange={() => setSelected(allSelected ? [] : completeOutputs.map((out) => out.folder))}
+              checked={allPageSelected}
+              onChange={togglePageSelection}
+              disabled={!pageOutputs.length}
             />
-            Select all
+            Select page
           </label>
         </div>
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Button
             size="sm"
             variant="secondary"
@@ -1121,26 +1263,65 @@ function OutputHistory({ outputs, onChanged }: { outputs: Array<Output>; onChang
           {selected.length > 0 && (
             <span className="self-center text-xs text-slate-400">{selected.length} selected</span>
           )}
+          <div className="ml-auto flex flex-wrap items-center gap-2 text-xs text-slate-400">
+            <span>
+              Showing {completeOutputs.length ? pageStart + 1 : 0}-{pageEnd} of {completeOutputs.length}
+            </span>
+            <Select
+              className="h-8 w-24 rounded-lg px-2 text-xs"
+              value={pageSize}
+              onChange={(event) => {
+                setPageSize(Number(event.target.value))
+                setPage(1)
+              }}
+            >
+              <option value={5}>5 / page</option>
+              <option value={10}>10 / page</option>
+              <option value={20}>20 / page</option>
+              <option value={50}>50 / page</option>
+            </Select>
+            <Button size="sm" variant="outline" onClick={() => setPage((value) => Math.max(1, value - 1))} disabled={currentPage <= 1}>
+              Prev
+            </Button>
+            <span>
+              {currentPage}/{totalPages}
+            </span>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setPage((value) => Math.min(totalPages, value + 1))}
+              disabled={currentPage >= totalPages}
+            >
+              Next
+            </Button>
+          </div>
         </div>
       </CardHeader>
-      <CardContent className="grid gap-3 md:grid-cols-3">
-        {completeOutputs.map((out) => (
+      <CardContent className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+        {pageOutputs.map((out) => (
           <div
             key={out.folder}
-            className={`rounded-lg border bg-slate-900/60 p-2 transition ${selectedSet.has(out.folder) ? 'border-cyan-400' : 'border-slate-800 hover:border-cyan-500'}`}
+            className={`relative rounded-xl border bg-zinc-800 p-2 transition ${selectedSet.has(out.folder) ? 'border-stone-200 bg-zinc-700' : 'border-white/10 hover:border-white/30'}`}
           >
             <label className="mb-2 flex items-center gap-2 text-xs text-slate-300">
               <input type="checkbox" checked={selectedSet.has(out.folder)} onChange={() => toggle(out.folder)} />
               Select
             </label>
-            <a href={out.finalUrl ?? out.previewUrl ?? '#'}>
+            <a className="group block" href={out.finalUrl ?? out.previewUrl ?? '#'}>
               <img
                 src={out.previewUrl ?? ''}
-                className="mb-2 aspect-video w-full rounded object-cover"
+                className="mb-2 aspect-video w-full rounded-lg object-cover"
                 alt={`${out.folder} preview`}
               />
-              <div className="truncate text-sm">{out.folder}</div>
+              <div className="truncate text-xs">{out.folder}</div>
               <div className="text-xs text-slate-500">{out.finalName}</div>
+              <div className="pointer-events-none fixed left-1/2 top-1/2 z-50 hidden w-[90vw] max-w-xl -translate-x-1/2 -translate-y-1/2 rounded-xl border border-white/10 bg-zinc-900 p-3 opacity-0 shadow-xl shadow-black/40 transition-opacity delay-[600ms] duration-150 group-hover:block group-hover:opacity-100 group-focus-within:block group-focus-within:opacity-100">
+                <img
+                  src={out.previewUrl ?? ''}
+                  className="max-h-[70vh] w-full rounded-lg object-contain"
+                  alt={`${out.folder} larger preview`}
+                />
+              </div>
             </a>
           </div>
         ))}
@@ -1151,7 +1332,7 @@ function OutputHistory({ outputs, onChanged }: { outputs: Array<Output>; onChang
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div className="space-y-1">
+    <div className="space-y-3 rounded-2xl border border-white/10 bg-zinc-900 p-4">
       <div className="flex items-center gap-1.5">
         <Label>{label}</Label>
         <InfoTooltip label={label} />
@@ -1195,9 +1376,18 @@ function RangeField({
   disabled?: boolean
 }) {
   return (
-    <Field label={`${label}: ${value}`}>
+    <div className="space-y-4 rounded-2xl border border-white/10 bg-zinc-900 p-4">
+      <div className="flex items-start justify-between gap-4">
+        <div className="flex items-center gap-1.5">
+          <Label>{label}</Label>
+          <InfoTooltip label={label} />
+        </div>
+        <span className="rounded-full border border-white/10 bg-zinc-800 px-2.5 py-1 text-xs font-medium text-stone-100">
+          {value}
+        </span>
+      </div>
       <input
-        className="w-full accent-cyan-400"
+        className="h-2 w-full accent-stone-200"
         type="range"
         min={min}
         max={max}
@@ -1206,7 +1396,11 @@ function RangeField({
         onChange={(e) => set(Number(e.target.value))}
         disabled={disabled}
       />
-    </Field>
+      <div className="flex justify-between text-[11px] text-zinc-500">
+        <span>{min}</span>
+        <span>{max}</span>
+      </div>
+    </div>
   )
 }
 function ToggleField({
@@ -1221,18 +1415,24 @@ function ToggleField({
   disabled?: boolean
 }) {
   return (
-    <label className="flex items-center justify-between gap-3 rounded-lg border border-slate-800 bg-slate-900/60 px-3 py-2 text-sm text-slate-200">
+    <label className="flex min-h-16 items-center justify-between gap-4 rounded-2xl border border-white/10 bg-zinc-900 p-4 text-sm text-stone-200 transition hover:border-white/20">
       <span className="flex items-center gap-1.5">
         {label}
         <InfoTooltip label={label} />
       </span>
-      <input type="checkbox" checked={checked} onChange={(e) => set(e.target.checked)} disabled={disabled} />
+      <input
+        className="size-4 accent-stone-200"
+        type="checkbox"
+        checked={checked}
+        onChange={(e) => set(e.target.checked)}
+        disabled={disabled}
+      />
     </label>
   )
 }
 function Stat({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded bg-slate-900 p-2">
+    <div className="rounded-xl border border-white/10 bg-zinc-900 p-3">
       <div className="text-xs text-slate-500">{label}</div>
       <div>{value}</div>
     </div>
@@ -1244,8 +1444,8 @@ function InfoTooltip({ label }: { label: string }) {
   if (!text) return null
   return (
     <button type="button" className="group relative inline-flex">
-      <Info className="size-3.5 cursor-help text-slate-500 transition group-hover:text-cyan-300 group-focus:text-cyan-300" />
-      <span className="pointer-events-none absolute left-1/2 top-5 z-20 hidden w-64 -translate-x-1/2 rounded-md border border-slate-700 bg-slate-950 p-2 text-xs normal-case leading-relaxed text-slate-200 shadow-xl group-hover:block group-focus:block">
+      <Info className="size-3.5 cursor-help text-zinc-500 transition group-hover:text-stone-200 group-focus:text-stone-200" />
+      <span className="pointer-events-none absolute left-1/2 top-5 z-20 hidden w-64 -translate-x-1/2 rounded-xl border border-white/10 bg-zinc-800 p-3 text-xs normal-case leading-relaxed text-stone-200 shadow-lg shadow-black/30 group-hover:block group-focus:block">
         {text}
       </span>
     </button>
@@ -1259,7 +1459,7 @@ function settingTooltip(label: string) {
       'Final mosaic width in pixels. Height follows the main photo aspect ratio once a main photo is selected.',
     'Output height': 'Final mosaic height in pixels. This is locked when a main photo provides an aspect ratio.',
     'Megapixel target': 'Optional size target. Leave at 0 to use width and height directly.',
-    Format: 'PNG is lossless and larger. JPEG/WebP are smaller and use the quality setting.',
+    Format: 'JPG is the default and keeps files smaller. PNG is lossless and larger. WebP is also compact.',
     'JPEG/WebP quality':
       'Compression quality for JPEG and WebP outputs. Higher means larger files and fewer artifacts.',
     'Tile size':

@@ -248,8 +248,18 @@ export function computeLayout(config: MosaicConfig, mainWidth: number, mainHeigh
   return { outputWidth, outputHeight, tileWidth, tileHeight, columns, rows }
 }
 
-export async function targetCellColors(mainBuffer: Buffer, columns: number, rows: number): Promise<Array<RGB>> {
-  const raw = await sharp(mainBuffer).rotate().resize(columns, rows, { fit: 'fill' }).removeAlpha().raw().toBuffer()
+export async function targetCellColors(
+  mainBuffer: Buffer,
+  columns: number,
+  rows: number,
+  outputWidth?: number,
+  outputHeight?: number,
+): Promise<Array<RGB>> {
+  const source =
+    outputWidth && outputHeight
+      ? await mainImageCanvas(mainBuffer, outputWidth, outputHeight)
+      : await sharp(mainBuffer).rotate().removeAlpha().toColorspace('srgb').png().toBuffer()
+  const raw = await sharp(source).resize(columns, rows, { fit: 'fill' }).raw().toBuffer()
   const colors: Array<RGB> = []
   for (let i = 0; i < raw.length; i += 3) colors.push([raw[i], raw[i + 1], raw[i + 2]])
   return colors
@@ -297,7 +307,13 @@ export async function renderMosaic(args: {
   }
 
   args.onLog?.('Computing target cell colors')
-  const colors = await targetCellColors(args.mainBuffer, layout.columns, layout.rows)
+  const colors = await targetCellColors(
+    args.mainBuffer,
+    layout.columns,
+    layout.rows,
+    layout.outputWidth,
+    layout.outputHeight,
+  )
   renderCompleted += 1
   progress('Computing target cell colors')
   args.onLog?.('Selecting best tile for each cell')
@@ -347,12 +363,12 @@ export async function renderMosaic(args: {
   progress('Compositing row strips into final canvas')
   if (args.config.mainImageOpacity > 0) {
     args.onLog?.(`Blending main image influence at opacity ${args.config.mainImageOpacity}`)
-    const overlay = await sharp(args.mainBuffer)
-      .rotate()
-      .resize(layout.outputWidth, layout.outputHeight, { fit: 'cover' })
-      .ensureAlpha(args.config.mainImageOpacity)
-      .png()
-      .toBuffer()
+    const overlay = await uniformOpacityOverlay(
+      args.mainBuffer,
+      layout.outputWidth,
+      layout.outputHeight,
+      args.config.mainImageOpacity,
+    )
     mosaicBuffer = await sharp(mosaicBuffer)
       .composite([{ input: overlay }])
       .png()
@@ -361,7 +377,7 @@ export async function renderMosaic(args: {
   renderCompleted += 1
   progress('Applying main image blend')
 
-  const finalName = `final.${args.config.outputFormat}`
+  const finalName = `final.${outputExtension(args.config)}`
   const finalPath = path.join(args.outputFolder, finalName)
   args.onLog?.(`Writing final image: ${finalName}`)
   const encoded = encodeOutput(sharp(mosaicBuffer), args.config)
@@ -386,6 +402,10 @@ function encodeOutput(image: sharp.Sharp, config: MosaicConfig) {
   return image.png()
 }
 
+function outputExtension(config: MosaicConfig) {
+  return config.outputFormat === 'jpeg' ? 'jpg' : config.outputFormat
+}
+
 function paddingColor(config: MosaicConfig, average: RGB) {
   if (config.paddingMode === 'dominant') return { r: average[0], g: average[1], b: average[2] }
   if (config.paddingMode === 'white') return '#ffffff'
@@ -407,6 +427,25 @@ async function colorMatchedTile(buffer: Buffer, target: RGB, average: RGB, stren
     .modulate({ brightness, saturation, hue: hueDelta })
     .toColorspace('srgb')
     .jpeg(tileJpegOptions)
+    .toBuffer()
+}
+
+async function uniformOpacityOverlay(buffer: Buffer, width: number, height: number, opacity: number) {
+  const rgb = await mainImageCanvas(buffer, width, height)
+  const alpha = Buffer.alloc(width * height, Math.round(clamp(opacity, 0, 1) * 255))
+  return sharp(rgb)
+    .joinChannel(alpha, { raw: { width, height, channels: 1 } })
+    .png()
+    .toBuffer()
+}
+
+function mainImageCanvas(buffer: Buffer, width: number, height: number) {
+  return sharp(buffer)
+    .rotate()
+    .resize(width, height, { fit: 'cover' })
+    .removeAlpha()
+    .toColorspace('srgb')
+    .png()
     .toBuffer()
 }
 

@@ -32,7 +32,7 @@ export const mosaicConfigSchema = z.object({
   includeFavoritesOnly: z.boolean().default(false),
   includeVideos: z.boolean().default(false),
   randomSeed: z.number().int().min(0).max(2147483647).default(1337),
-  outputFormat: z.enum(['png', 'jpeg', 'webp']).default('png'),
+  outputFormat: z.enum(['png', 'jpeg', 'webp']).default('jpeg'),
   quality: z.number().int().min(1).max(100).default(90),
   keepIntermediates: z.boolean().default(false),
 })

@@ -62,6 +62,60 @@ describe('output generation', () => {
     expect(r).toBeGreaterThan(b)
   })
 
+  it('applies main image influence with uniform opacity even when the source has alpha', async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'mosaic-alpha-'))
+    const width = 8
+    const height = 4
+    const rgba = Buffer.alloc(width * height * 4)
+    for (let y = 0; y < height; y += 1) {
+      for (let x = 0; x < width; x += 1) {
+        const i = (y * width + x) * 4
+        rgba[i] = 255
+        rgba[i + 1] = 255
+        rgba[i + 2] = 255
+        rgba[i + 3] = x < width / 2 ? 255 : 0
+      }
+    }
+    const main = await sharp(rgba, { raw: { width, height, channels: 4 } }).png().toBuffer()
+    const black = await sharp({ create: { width: 16, height: 16, channels: 3, background: '#000000' } })
+      .png()
+      .toBuffer()
+    const candidates: Array<TileCandidate> = [{ assetId: 'black', buffer: black, average: await imageAverage(black) }]
+    const config = {
+      ...defaultConfig.mosaic,
+      outputWidth: 80,
+      outputHeight: 40,
+      tileSize: 20,
+      repeatLimit: 99,
+      outputFormat: 'png' as const,
+      colorMatchingStrength: 0,
+      mainImageOpacity: 0.5,
+    }
+    const result = await renderMosaic({ mainBuffer: main, candidates, config, outputFolder: dir })
+    const raw = await sharp(result.finalPath).removeAlpha().raw().toBuffer()
+    let left = 0
+    let right = 0
+    let leftPixels = 0
+    let rightPixels = 0
+    for (let y = 0; y < config.outputHeight; y += 1) {
+      for (let x = 0; x < config.outputWidth; x += 1) {
+        const i = (y * config.outputWidth + x) * 3
+        const brightness = (raw[i] + raw[i + 1] + raw[i + 2]) / 3
+        if (x < config.outputWidth / 2) {
+          left += brightness
+          leftPixels += 1
+        } else {
+          right += brightness
+          rightPixels += 1
+        }
+      }
+    }
+    const leftAverage = left / leftPixels
+    const rightAverage = right / rightPixels
+    expect(Math.abs(leftAverage - rightAverage)).toBeLessThan(3)
+    expect(leftAverage).toBeGreaterThan(120)
+  })
+
   it('detects screenshot-like candidates without rejecting photo-like gradients', async () => {
     const screenshot = await sharp(
       Buffer.from(
